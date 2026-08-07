@@ -45,6 +45,20 @@ TARGET_USERIMAGES_USE_F2FS := true
 BOARD_HAS_NO_SELECT_BUTTON := true
 
 TW_THEME := portrait_hdpi
+TW_EXTRA_LANGUAGES := true
+TW_DEFAULT_LANGUAGE := zh_CN
+TW_DEVICE_VERSION := PAR
+# Match the stock Huawei recovery reset semantics: formatting Data also erases
+# emulated internal storage (/data/media), instead of TWRP's usual media-preserving wipe.
+TW_FACTORY_RESET_FORMAT_DATA := true
+# Avoid probing or mounting freshly formatted userdata until the next boot.
+TW_SKIP_DATA_POST_FORMAT_MOUNT := true
+# Huawei's 4.9 F2FS driver spins while importing the NAT-bits table emitted by
+# newer f2fs-tools. Keep the older checkpoint layout used by stock userdata.
+TW_F2FS_DISABLE_NAT_BITS := true
+# A blank FBE filesystem must be initialized by Android vold; TWRP must not
+# pre-create a plaintext /data/media hierarchy after Format Data.
+TW_FBE_DATA_MEDIA_INIT_BY_SYSTEM := true
 BOARD_SUPPRESS_SECURE_ERASE := true
 RECOVERY_SDCARD_ON_DATA := true
 TW_EXCLUDE_DEFAULT_USB_INIT := true
@@ -54,7 +68,22 @@ TW_NO_SCREEN_BLANK := true
 TW_USE_TOOLBOX := true
 TW_DEFAULT_BRIGHTNESS := "2048"
 TW_CUSTOM_BATTERY_PATH := /sys/class/power_supply/Battery
+TW_CUSTOM_BATTERY_FALLBACK_PATH := /sys/class/power_supply/battery
 # Device crashes if /sbin/modprobe is present so this is needed:
 BOARD_CUSTOM_BOOTIMG_MK := device/huawei/par/custombootimg.mk
 # fscrypt v1 (FBE) decrypt + keymaster HAL (kernel has /dev/tc_ns_client)
 TW_INCLUDE_CRYPTO := true
+
+# Keep recovery-side diagnostics available while bringing up the proprietary
+# TEE/keymaster stack.  Starting logd before the HALs also preserves their
+# loader and registration errors instead of reducing every failure to exit(1).
+TWRP_INCLUDE_LOGCAT := true
+TARGET_USES_LOGD := true
+TWRP_INCLUDE_STRACE := true
+
+# Recovery sepolicy additions: EMUI9 vendor types (tee/teecd, keymaster,
+# gatekeeper, tc_ns_client) are missing from the AOSP recovery policy, so
+# vendor services cannot exec. par_decrypt.te re-declares them permissive.
+BOARD_VENDOR_SEPOLICY_DIRS += device/huawei/par/sepolicy
+# eng build; neverallow would reject the permissive domains otherwise
+SELINUX_IGNORE_NEVERALLOWS := true

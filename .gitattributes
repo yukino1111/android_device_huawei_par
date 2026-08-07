@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab
+*.mk text eol=lf
+*.rc text eol=lf
+*.sh text eol=lf
+*.te text eol=lf
+*.xml text eol=lf
+dummykernel -text
+recovery/root/sbin/* -text
+recovery/root/sbin/*.sh text eol=lf

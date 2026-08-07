@@ -1,0 +1,100 @@
+diff --git a/fsck/main.c b/fsck/main.c
+index f35d01db0fa4ea3a5ca207f853559039df90372a..7810171a5f95c6091e0fc09cb0029b923c1c8299 100644
+--- a/fsck/main.c
++++ b/fsck/main.c
+@@ -105,6 +105,7 @@ void sload_usage()
+ 	MSG(0, "[options]:\n");
+ 	MSG(0, "  -C fs_config\n");
+ 	MSG(0, "  -f source directory [path of the source directory]\n");
++	MSG(0, "  -N disable NAT-bits checkpoint table\n");
+ 	MSG(0, "  -p product out directory\n");
+ 	MSG(0, "  -s file_contexts\n");
+ 	MSG(0, "  -S sparse_mode\n");
+@@ -409,7 +410,7 @@ void f2fs_parse_options(int argc, char *argv[])
+ 				break;
+ 		}
+ 	} else if (!strcmp("sload.f2fs", prog)) {
+-		const char *option_string = "C:d:f:p:s:St:T:";
++		const char *option_string = "C:d:f:Np:s:St:T:";
+ #ifdef HAVE_LIBSELINUX
+ 		int max_nr_opt = (int)sizeof(c.seopt_file) /
+ 			sizeof(c.seopt_file[0]);
+@@ -435,6 +436,9 @@ void f2fs_parse_options(int argc, char *argv[])
+ 			case 'f':
+ 				c.from_dir = absolute_path(optarg);
+ 				break;
++			case 'N':
++				c.disable_nat_bits = 1;
++				break;
+ 			case 'p':
+ 				c.target_out_dir = absolute_path(optarg);
+ 				break;
+diff --git a/fsck/mount.c b/fsck/mount.c
+index 61ea0ea6fc14cefda10d21326a5ba3c1eb9618ac..5ed6a12db2c665340d6a6c6efea39048d4e2f24b 100644
+--- a/fsck/mount.c
++++ b/fsck/mount.c
+@@ -954,6 +954,8 @@ u32 update_nat_bits_flags(struct f2fs_super_block *sb,
+ 				struct f2fs_checkpoint *cp, u32 flags)
+ {
+ 	u_int32_t nat_bits_bytes, nat_bits_blocks;
++	if (c.disable_nat_bits)
++		return flags & (~CP_NAT_BITS_FLAG);
+ 
+ 	nat_bits_bytes = get_sb(segment_count_nat) << 5;
+ 	nat_bits_blocks = F2FS_BYTES_TO_BLK((nat_bits_bytes << 1) + 8 +
+diff --git a/include/f2fs_fs.h b/include/f2fs_fs.h
+index e8000043c5b4fab7c0f7e3dc2186cbec86b1a265..c284d51991b74fcdb46da2ce967742db3a979707 100644
+--- a/include/f2fs_fs.h
++++ b/include/f2fs_fs.h
+@@ -354,6 +354,7 @@ struct f2fs_configuration {
+ 	int show_dentry;
+ 	int trim;
+ 	int trimmed;
++	int disable_nat_bits;
+ 	int func;
+ 	void *private;
+ 	int dry_run;
+diff --git a/mkfs/f2fs_format.c b/mkfs/f2fs_format.c
+index 09886b42c856e3ac5e0ac8704fedbbe2e2873fc3..2518f4f8b939806d745ae4db1e82fba2b752db16 100644
+--- a/mkfs/f2fs_format.c
++++ b/mkfs/f2fs_format.c
+@@ -616,7 +616,7 @@ static int f2fs_write_check_point_pack(void)
+ 	/* cp page (2), data summaries (1), node summaries (3) */
+ 	set_cp(cp_pack_total_block_count, 6 + get_sb(cp_payload));
+ 	flags = CP_UMOUNT_FLAG | CP_COMPACT_SUM_FLAG;
+-	if (get_cp(cp_pack_total_block_count) <=
++	if (!c.disable_nat_bits && get_cp(cp_pack_total_block_count) <=
+ 			(1 << get_sb(log_blocks_per_seg)) - nat_bits_blocks)
+ 		flags |= CP_NAT_BITS_FLAG;
+ 
+diff --git a/mkfs/f2fs_format_main.c b/mkfs/f2fs_format_main.c
+index 36228d580e282fe3e6802e55c4352cbbb82211cc..412922a183101f408bbcd99574c15ee36e4f8f20 100644
+--- a/mkfs/f2fs_format_main.c
++++ b/mkfs/f2fs_format_main.c
+@@ -48,6 +48,7 @@ static void mkfs_usage()
+ 	MSG(0, "  -f force overwrite the exist filesystem\n");
+ 	MSG(0, "  -l label\n");
+ 	MSG(0, "  -m support zoned block device [default:0]\n");
++	MSG(0, "  -N disable NAT-bits checkpoint table [default:0]\n");
+ 	MSG(0, "  -o overprovision ratio [default:5]\n");
+ 	MSG(0, "  -O [feature list] e.g. \"encrypt\"\n");
+ 	MSG(0, "  -q quiet mode\n");
+@@ -105,7 +106,7 @@ static void parse_feature(const char *features)
+ 
+ static void f2fs_parse_options(int argc, char *argv[])
+ {
+-	static const char *option_string = "qa:c:d:e:l:mo:O:s:S:z:t:fw:";
++	static const char *option_string = "qa:c:d:e:l:mNo:O:s:S:z:t:fw:";
+ 	int32_t option=0;
+ 
+ 	while ((option = getopt(argc,argv,option_string)) != EOF) {
+@@ -146,6 +147,9 @@ static void f2fs_parse_options(int argc, char *argv[])
+ 		case 'm':
+ 			c.zoned_mode = 1;
+ 			break;
++		case 'N':
++			c.disable_nat_bits = 1;
++			break;
+ 		case 'o':
+ 			c.overprovision = atof(optarg);
+ 			break;

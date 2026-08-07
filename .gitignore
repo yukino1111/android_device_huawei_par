@@ -1,0 +1,27 @@
+# Android build output and local files
+/out/
+/.repo/
+/.ccache/
+/dist/
+/logs/
+/artifacts/
+/tmp/
+*.img
+*.img.*
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.log
+!dummykernel
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Huawei recovery prebuilts must be supplied locally by the builder.
+/recovery/root/sbin/*
+!/recovery/root/sbin/fixlinks.sh
+!/recovery/root/sbin/wait-for-service.sh

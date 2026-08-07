@@ -1,0 +1,37 @@
+# Huawei nova 3 (PAR), EMUI 9.0.0.186
+#
+# This repository does not distribute these files. Extract them from firmware
+# you obtained yourself, then copy each source to the destination after the
+# colon. Source paths are relative to the mounted firmware root.
+
+# Gatekeeper and Keymaster
+vendor/bin/hw/android.hardware.gatekeeper@1.0-service:recovery/root/sbin/android.hardware.gatekeeper@1.0-service
+vendor/bin/hw/android.hardware.gatekeeper@1.0-service:recovery/root/sbin/gk1-service
+vendor/bin/hw/android.hardware.keymaster@3.0-service:recovery/root/sbin/android.hardware.keymaster@3.0-service
+vendor/bin/hw/android.hardware.keymaster@3.0-service:recovery/root/sbin/km3-service
+vendor/lib64/hw/gatekeeper.kirin970.so:recovery/root/sbin/gatekeeper.kirin970.so
+vendor/lib64/hw/android.hardware.gatekeeper@1.0-impl.so:recovery/root/sbin/gk1-impl.so
+vendor/lib64/hw/keystore.kirin970.so:recovery/root/sbin/keystore.kirin970.so
+vendor/lib64/hw/android.hardware.keymaster@3.0-impl.so:recovery/root/sbin/km3-impl.so
+vendor/lib64/libkeymaster3device.so:recovery/root/sbin/libkeymaster3device.so
+system/lib64/libkeymaster_messages.so:recovery/root/sbin/libkeymaster_messages.so
+system/lib64/libkeymaster_portable.so:recovery/root/sbin/libkeymaster_portable.so
+system/lib64/libpuresoftkeymasterdevice.so:recovery/root/sbin/libpuresoftkeymasterdevice.so
+
+# TEE client and authentication chain
+system/bin/tee_auth_daemon:recovery/root/sbin/tee_auth_daemon
+system/lib64/libteec_client.so:recovery/root/sbin/libteec_client.so
+vendor/lib64/libteec_vendor.so:recovery/root/sbin/libteec_vendor.so
+system/lib64/libtuidaemon.so:recovery/root/sbin/libtuidaemon.so
+system/lib64/vendor.huawei.hardware.libteec@2.0.so:recovery/root/sbin/vendor.huawei.hardware.libteec@2.0.so
+
+# Runtime dependencies of the validated recovery integration
+system/lib64/android.hidl.memory.token@1.0.so:recovery/root/sbin/android.hidl.memory.token@1.0.so
+system/lib64/android.hidl.memory@1.0.so:recovery/root/sbin/android.hidl.memory@1.0.so
+vendor/lib64/libbyodca.so:recovery/root/sbin/libbyodca.so
+system/lib64/libc_secshared.so:recovery/root/sbin/libc_secshared.so
+system/lib64/libhidlmemory.so:recovery/root/sbin/libhidlmemory.so
+vendor/lib64/libhwlog.so:recovery/root/sbin/libhwlog.so
+vendor/lib64/libimonitor.so:recovery/root/sbin/libimonitor.so
+system/lib64/libtinyxml2.so:recovery/root/sbin/libtinyxml2.so
+vendor/lib64/libxcollie.so:recovery/root/sbin/libxcollie.so

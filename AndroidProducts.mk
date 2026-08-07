@@ -16,3 +16,6 @@
 
 PRODUCT_MAKEFILES := \
     $(LOCAL_DIR)/omni_par.mk
+
+COMMON_LUNCH_CHOICES := \
+    omni_par-eng

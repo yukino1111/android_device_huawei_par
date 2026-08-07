@@ -1,0 +1,1922 @@
+diff --git a/Android.mk b/Android.mk
+index aedb3f9a93052ab95367edf489ee97e7e1ce0377..eac8f8fb554506cd548a2990db195afcaab7dd6d 100755
+--- a/Android.mk
++++ b/Android.mk
+@@ -57,6 +57,18 @@ ifneq ($(TW_DEVICE_VERSION),)
+ else
+     LOCAL_CFLAGS += -DTW_DEVICE_VERSION='"-0"'
+ endif
++ifeq ($(TW_FACTORY_RESET_FORMAT_DATA),true)
++    LOCAL_CFLAGS += -DTW_FACTORY_RESET_FORMAT_DATA
++endif
++ifeq ($(TW_SKIP_DATA_POST_FORMAT_MOUNT),true)
++    LOCAL_CFLAGS += -DTW_SKIP_DATA_POST_FORMAT_MOUNT
++endif
++ifeq ($(TW_F2FS_DISABLE_NAT_BITS),true)
++    LOCAL_CFLAGS += -DTW_F2FS_DISABLE_NAT_BITS
++endif
++ifeq ($(TW_FBE_DATA_MEDIA_INIT_BY_SYSTEM),true)
++    LOCAL_CFLAGS += -DTW_FBE_DATA_MEDIA_INIT_BY_SYSTEM
++endif
+ LOCAL_CFLAGS += -DPLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION)
+ 
+ LOCAL_SRC_FILES := \
+@@ -389,6 +401,9 @@ endif
+ ifneq ($(TW_CUSTOM_BATTERY_PATH),)
+ 	LOCAL_CFLAGS += -DTW_CUSTOM_BATTERY_PATH=$(TW_CUSTOM_BATTERY_PATH)
+ endif
++ifneq ($(TW_CUSTOM_BATTERY_FALLBACK_PATH),)
++	LOCAL_CFLAGS += -DTW_CUSTOM_BATTERY_FALLBACK_PATH=$(TW_CUSTOM_BATTERY_FALLBACK_PATH)
++endif
+ ifneq ($(TW_CUSTOM_CPU_TEMP_PATH),)
+ 	LOCAL_CFLAGS += -DTW_CUSTOM_CPU_TEMP_PATH=$(TW_CUSTOM_CPU_TEMP_PATH)
+ endif
+@@ -545,6 +560,9 @@ ifeq ($(TWRP_INCLUDE_LOGCAT), true)
+         endif
+     endif
+ endif
++ifeq ($(TWRP_INCLUDE_STRACE), true)
++    TWRP_REQUIRED_MODULES += strace
++endif
+ ifneq ($(TW_EXCLUDE_TZDATA), true)
+     TWRP_REQUIRED_MODULES += tzdata_twrp
+ endif
+diff --git a/crypto/ext4crypt/Android.mk b/crypto/ext4crypt/Android.mk
+index 0c6ef5b566c689c1b7bcd97d7873ce4065d91f7c..ab3330c88f38c82a13275f4b5078c88580a3962f 100644
+--- a/crypto/ext4crypt/Android.mk
++++ b/crypto/ext4crypt/Android.mk
+@@ -8,7 +8,7 @@ LOCAL_CFLAGS :=
+ LOCAL_SRC_FILES := Decrypt.cpp ScryptParameters.cpp Utils.cpp HashPassword.cpp ext4_crypt.cpp
+ LOCAL_SHARED_LIBRARIES := libselinux libc libc++ libext4_utils libbase libcrypto libcutils libkeymaster_messages libhardware libprotobuf-cpp-lite
+ LOCAL_STATIC_LIBRARIES := libscrypt_static
+-LOCAL_C_INCLUDES := system/extras/ext4_utils system/extras/ext4_utils/include/ext4_utils external/scrypt/lib/crypto system/security/keystore hardware/libhardware/include/hardware system/security/softkeymaster/include/keymaster system/keymaster/include
++LOCAL_C_INCLUDES := $(LOCAL_PATH)/include system/extras/ext4_utils system/extras/ext4_utils/include/ext4_utils external/scrypt/lib/crypto system/security/keystore hardware/libhardware/include/hardware system/security/softkeymaster/include/keymaster system/keymaster/include
+ 
+ ifneq ($(wildcard hardware/libhardware/include/hardware/keymaster0.h),)
+     LOCAL_CFLAGS += -DTW_CRYPTO_HAVE_KEYMASTERX
+@@ -19,21 +19,33 @@ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 26; echo $$?),0)
+     LOCAL_CFLAGS += -DHAVE_GATEKEEPER1
+     LOCAL_SHARED_LIBRARIES += android.hardware.keymaster@3.0 libkeystore_binder libhidlbase libutils libbinder android.hardware.gatekeeper@1.0
+     ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
+-        #9.0 rules
+-        LOCAL_CFLAGS += -DUSE_KEYSTORAGE_4 -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter -Wno-comment
+-        LOCAL_SRC_FILES += Ext4CryptPie.cpp Keymaster4.cpp KeyStorage4.cpp KeyUtil.cpp MetadataCrypt.cpp KeyBuffer.cpp
++        #9.0 platform, but PAR (Huawei EMUI9) exposes keymaster@3.0 only:
++        # force the 8.0/3.0 keymaster path so HIDL V3_0 service is used.
++        # Keystore's Binder interface is still the Android 9 namespaced AIDL,
++        # independent of the hardware Keymaster version.
++        LOCAL_CFLAGS += -DUSE_KEYSTORAGE_3 -DUSE_SECURITY_NAMESPACE -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter -Wno-comment -Wno-unused-function
++        LOCAL_SRC_FILES += Ext4Crypt.cpp Keymaster3.cpp KeyStorage3.cpp MetadataCrypt_stub.cpp Keystore2Keymaster3.cpp
+         LOCAL_SHARED_LIBRARIES += android.hardware.keymaster@4.0 libkeymaster4support
+-        LOCAL_SHARED_LIBRARIES += android.hardware.gatekeeper@1.0 libkeystore_parcelables libkeystore_aidl
+-        LOCAL_CFLAGS += -DHAVE_SYNTH_PWD_SUPPORT
+-        LOCAL_SRC_FILES += Weaver1.cpp
+-        LOCAL_SHARED_LIBRARIES += android.hardware.weaver@1.0
+-        LOCAL_CFLAGS += -DHAVE_LIBKEYUTILS
+-        LOCAL_SHARED_LIBRARIES += libkeyutils
++        LOCAL_SHARED_LIBRARIES += libkeystore_parcelables libkeystore_aidl
++        # Android 12+ stores synthetic-password key blobs in Keystore2's
++        # persistent.sqlite instead of legacy user_N alias files.
++        LOCAL_STATIC_LIBRARIES += libsqlite_static_minimal
++        ifneq ($(wildcard hardware/interfaces/weaver/1.0/Android.bp),)
++            #only present in some 8.0 trees and should be in all 8.1 trees
++            LOCAL_CFLAGS += -DHAVE_SYNTH_PWD_SUPPORT
++            LOCAL_SRC_FILES += Weaver1.cpp
++            LOCAL_SHARED_LIBRARIES += android.hardware.weaver@1.0
++        endif
++        ifneq ($(wildcard system/core/libkeyutils/Android.bp),)
++            #only present in some 8.0 trees and should be in all 8.1 trees
++            LOCAL_CFLAGS += -DHAVE_LIBKEYUTILS
++            LOCAL_SHARED_LIBRARIES += libkeyutils
++        endif
+     else
+         #8.0 rules
+         LOCAL_CFLAGS += -DUSE_KEYSTORAGE_3
+         LOCAL_SRC_FILES += Ext4Crypt.cpp Keymaster3.cpp KeyStorage3.cpp
+-        ifneq ($(wildcard hardware/interfaces/weaver/Android.bp),)
++        ifneq ($(wildcard hardware/interfaces/weaver/1.0/Android.bp),)
+             #only present in some 8.0 trees and should be in all 8.1 trees
+             LOCAL_CFLAGS += -DHAVE_SYNTH_PWD_SUPPORT
+             LOCAL_SRC_FILES += Weaver1.cpp
+diff --git a/crypto/ext4crypt/Decrypt.cpp b/crypto/ext4crypt/Decrypt.cpp
+index fb162404d03ce1a2103202a3293627ccc5fa8973..0f5f35985eb9c3f5790f57a5224e523e171f8fd1 100644
+--- a/crypto/ext4crypt/Decrypt.cpp
++++ b/crypto/ext4crypt/Decrypt.cpp
+@@ -39,6 +39,9 @@
+ #ifdef HAVE_SYNTH_PWD_SUPPORT
+ #include "Weaver1.h"
+ #include "cutils/properties.h"
++#ifdef USE_KEYSTORAGE_3
++#include "Keystore2Keymaster3.h"
++#endif
+ 
+ #include <openssl/sha.h>
+ #include <openssl/aes.h>
+@@ -54,7 +57,7 @@
+ 
+ #include <ext4_utils/ext4_crypt.h>
+ 
+-#ifdef USE_KEYSTORAGE_4
++#ifdef USE_SECURITY_NAMESPACE
+ #include <android/security/IKeystoreService.h>
+ #else
+ #include <keystore/IKeystoreService.h>
+@@ -539,8 +542,91 @@ bool Find_Keystore_Alias_SubID_And_Prep_Files(const userid_t user_id, std::strin
+ /* C++ replacement for function of the same name
+  * https://android.googlesource.com/platform/frameworks/base/+/android-8.0.0_r23/services/core/java/com/android/server/locksettings/SyntheticPasswordManager.java#867
+  * returning an empty string indicates an error */
+-std::string unwrapSyntheticPasswordBlob(const std::string& spblob_path, const std::string& handle_str, const userid_t user_id, const void* application_id, const size_t application_id_size, uint32_t auth_token_len) {
++std::string unwrapSyntheticPasswordBlobKeystore2(const std::string& spblob_path,
++		const std::string& handle_str, const void* application_id,
++		const size_t application_id_size, const std::vector<uint8_t>& auth_token) {
++#ifdef USE_KEYSTORAGE_3
++	std::string disk_decryption_secret_key;
++	std::string spblob_data;
++	if (!android::base::ReadFileToString(spblob_path + handle_str + ".spblob", &spblob_data) ||
++			spblob_data.size() < 2 + 12 + 16) {
++		printf("Failed to read a valid Keystore2 synthetic-password blob\n");
++		return disk_decryption_secret_key;
++	}
++	const uint8_t version = static_cast<uint8_t>(spblob_data[0]);
++	if ((version != SYNTHETIC_PASSWORD_VERSION_V2 &&
++			version != SYNTHETIC_PASSWORD_VERSION_V3) ||
++			static_cast<uint8_t>(spblob_data[1]) != SYNTHETIC_PASSWORD_PASSWORD_BASED) {
++		printf("Unsupported Keystore2 synthetic-password blob version/type %u/%u\n",
++			version, static_cast<uint8_t>(spblob_data[1]));
++		return disk_decryption_secret_key;
++	}
++
++	const uint8_t* iv = reinterpret_cast<const uint8_t*>(spblob_data.data() + 2);
++	const char* cipher_text = spblob_data.data() + 2 + 12;
++	const size_t cipher_text_size = spblob_data.size() - 2 - 12;
++	std::string intermediate_key;
++	if (!Decrypt_Keystore2_Key_Blob(handle_str, iv, 12,
++			reinterpret_cast<const uint8_t*>(cipher_text), cipher_text_size,
++			auth_token, &intermediate_key)) {
++		return disk_decryption_secret_key;
++	}
++	if (intermediate_key.size() < 12 + 16) {
++		printf("Keymaster returned a short synthetic-password payload (%zu)\n",
++			intermediate_key.size());
++		return disk_decryption_secret_key;
++	}
++
++	void* personalized_application_id = PersonalizedHashBinary(
++		PERSONALISATION_APPLICATION_ID, static_cast<const char*>(application_id),
++		application_id_size);
++	if (!personalized_application_id)
++		return disk_decryption_secret_key;
++	const uint8_t* intermediate_iv =
++		reinterpret_cast<const uint8_t*>(intermediate_key.data());
++	const uint8_t* encrypted_secret = intermediate_iv + 12;
++	const size_t encrypted_secret_size = intermediate_key.size() - 12 - 16;
++	const uint8_t* tag = encrypted_secret + encrypted_secret_size;
++	std::vector<uint8_t> secret_key(encrypted_secret_size);
++	EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
++	int actual_size = 0;
++	int final_size = 0;
++	bool openssl_ok = ctx &&
++		EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr,
++			static_cast<const uint8_t*>(personalized_application_id), intermediate_iv) == 1 &&
++		EVP_DecryptUpdate(ctx, secret_key.data(), &actual_size, encrypted_secret,
++			encrypted_secret_size) == 1 &&
++		EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
++			const_cast<uint8_t*>(tag)) == 1 &&
++		EVP_DecryptFinal_ex(ctx, secret_key.data() + actual_size, &final_size) == 1;
++	if (ctx) EVP_CIPHER_CTX_free(ctx);
++	free(personalized_application_id);
++	if (!openssl_ok) {
++		printf("Failed to authenticate application-bound synthetic-password payload\n");
++		return disk_decryption_secret_key;
++	}
++	secret_key.resize(actual_size + final_size);
++	if (version == SYNTHETIC_PASSWORD_VERSION_V3) {
++		disk_decryption_secret_key = PersonalizedHashSP800(PERSONALIZATION_FBE_KEY,
++			PERSONALISATION_CONTEXT, reinterpret_cast<const char*>(secret_key.data()),
++			secret_key.size());
++	} else {
++		disk_decryption_secret_key = PersonalizedHash(PERSONALIZATION_FBE_KEY,
++			reinterpret_cast<const char*>(secret_key.data()), secret_key.size());
++	}
++	printf("Unwrapped synthetic password with Keystore2\n");
++	return disk_decryption_secret_key;
++#else
++	return "";
++#endif
++}
++
++std::string unwrapSyntheticPasswordBlob(const std::string& spblob_path, const std::string& handle_str, const userid_t user_id, const void* application_id, const size_t application_id_size, const std::vector<uint8_t>& auth_token) {
+ 	std::string disk_decryption_secret_key = "";
++	uint32_t auth_token_len = auth_token.size();
++	if (access("/data/misc/keystore/persistent.sqlite", R_OK) == 0)
++		return unwrapSyntheticPasswordBlobKeystore2(spblob_path, handle_str,
++			application_id, application_id_size, auth_token);
+ 
+ 	std::string keystore_alias_subid;
+ 	// Can be stored in user 0, so check for both.
+@@ -553,7 +639,7 @@ std::string unwrapSyntheticPasswordBlob(const std::string& spblob_path, const st
+ 
+ 	// First get the keystore service
+ 	sp<IBinder> binder = getKeystoreBinderRetry();
+-#ifdef USE_KEYSTORAGE_4
++#ifdef USE_SECURITY_NAMESPACE
+ 	sp<security::IKeystoreService> service = interface_cast<security::IKeystoreService>(binder);
+ #else
+ 	sp<IKeystoreService> service = interface_cast<IKeystoreService>(binder);
+@@ -718,14 +804,14 @@ std::string unwrapSyntheticPasswordBlob(const std::string& spblob_path, const st
+ 		std::string keystore_alias = mKey_Prefix;
+ 		keystore_alias += keystore_alias_subid;
+ 		String16 keystore_alias16(keystore_alias.c_str());
+-#ifdef USE_KEYSTORAGE_4
+-		android::hardware::keymaster::V4_0::KeyPurpose purpose = android::hardware::keymaster::V4_0::KeyPurpose::DECRYPT;
++#ifdef USE_SECURITY_NAMESPACE
++		int32_t purpose = static_cast<int32_t>(::keystore::KeyPurpose::DECRYPT);
+ 		security::keymaster::OperationResult begin_result;
+ 		security::keymaster::OperationResult update_result;
+ 		security::keymaster::OperationResult finish_result;
+ 		::android::security::keymaster::KeymasterArguments empty_params;
+ 		// These parameters are mostly driven by the cipher.init call https://android.googlesource.com/platform/frameworks/base/+/android-8.0.0_r23/services/core/java/com/android/server/locksettings/SyntheticPasswordCrypto.java#63
+-		service->begin(binder, keystore_alias16, (int32_t)purpose, true, android::security::keymaster::KeymasterArguments(begin_params.hidl_data()), entropy, -1, &begin_result);
++		service->begin(binder, keystore_alias16, purpose, true, android::security::keymaster::KeymasterArguments(begin_params.hidl_data()), entropy, -1, &begin_result);
+ #else
+ 		::keystore::KeyPurpose purpose = ::keystore::KeyPurpose::DECRYPT;
+ 		OperationResult begin_result;
+@@ -832,14 +918,14 @@ std::string unwrapSyntheticPasswordBlob(const std::string& spblob_path, const st
+ 		std::string keystore_alias = mKey_Prefix;
+ 		keystore_alias += keystore_alias_subid;
+ 		String16 keystore_alias16(keystore_alias.c_str());
+-#ifdef USE_KEYSTORAGE_4
+-		android::hardware::keymaster::V4_0::KeyPurpose purpose = android::hardware::keymaster::V4_0::KeyPurpose::DECRYPT;
++#ifdef USE_SECURITY_NAMESPACE
++		int32_t purpose = static_cast<int32_t>(::keystore::KeyPurpose::DECRYPT);
+ 		security::keymaster::OperationResult begin_result;
+ 		security::keymaster::OperationResult update_result;
+ 		security::keymaster::OperationResult finish_result;
+ 		::android::security::keymaster::KeymasterArguments empty_params;
+ 		// These parameters are mostly driven by the cipher.init call https://android.googlesource.com/platform/frameworks/base/+/android-8.0.0_r23/services/core/java/com/android/server/locksettings/SyntheticPasswordCrypto.java#63
+-		service->begin(binder, keystore_alias16, (int32_t)purpose, true, android::security::keymaster::KeymasterArguments(begin_params.hidl_data()), entropy, -1, &begin_result);
++		service->begin(binder, keystore_alias16, purpose, true, android::security::keymaster::KeymasterArguments(begin_params.hidl_data()), entropy, -1, &begin_result);
+ #else
+ 		::keystore::KeyPurpose purpose = ::keystore::KeyPurpose::DECRYPT;
+ 		OperationResult begin_result;
+@@ -992,6 +1078,7 @@ bool Decrypt_User_Synth_Pass(const userid_t user_id, const std::string& Password
+ 	char application_id[PASSWORD_TOKEN_SIZE + SHA512_DIGEST_LENGTH];
+ 
+     uint32_t auth_token_len = 0;
++	std::vector<uint8_t> auth_token;
+ 
+ 	std::string secret; // this will be the disk decryption key that is sent to vold
+ 	std::string token = "!"; // there is no token used for this kind of decrypt, key escrow is handled by weaver
+@@ -1119,11 +1206,12 @@ bool Decrypt_User_Synth_Pass(const userid_t user_id, const std::string& Password
+ 			gk_device->verify(fakeUid(user_id), 0 /* challange */,
+ 							  pwd_handle_hidl,
+ 							  gk_pwd_token_hidl,
+-							  [&ret, &request_reenroll, &auth_token_len]
++							  [&ret, &request_reenroll, &auth_token_len, &auth_token]
+ 								(const android::hardware::gatekeeper::V1_0::GatekeeperResponse &rsp) {
+ 									ret = static_cast<int>(rsp.code); // propagate errors
+ 									if (rsp.code >= android::hardware::gatekeeper::V1_0::GatekeeperStatusCode::STATUS_OK) {
+ 										auth_token_len = rsp.data.size();
++										auth_token.assign(rsp.data.begin(), rsp.data.end());
+ 										request_reenroll = (rsp.code == android::hardware::gatekeeper::V1_0::GatekeeperStatusCode::STATUS_REENROLL);
+ 										ret = 0; // all success states are reported as 0
+ 										// The keystore refuses to allow the root user to supply auth tokens, so we write the auth token to a file here and later
+@@ -1153,7 +1241,9 @@ bool Decrypt_User_Synth_Pass(const userid_t user_id, const std::string& Password
+ 	// Now we will handle https://android.googlesource.com/platform/frameworks/base/+/android-8.0.0_r23/services/core/java/com/android/server/locksettings/SyntheticPasswordManager.java#816
+ 	// Plus we will include the last bit that computes the disk decrypt key found in:
+ 	// https://android.googlesource.com/platform/frameworks/base/+/android-8.0.0_r23/services/core/java/com/android/server/locksettings/SyntheticPasswordManager.java#153
+-	secret = android::keystore::unwrapSyntheticPasswordBlob(spblob_path, handle_str, user_id, (const void*)&application_id[0], PASSWORD_TOKEN_SIZE + SHA512_DIGEST_LENGTH, auth_token_len);
++	secret = android::keystore::unwrapSyntheticPasswordBlob(spblob_path, handle_str, user_id,
++		(const void*)&application_id[0], PASSWORD_TOKEN_SIZE + SHA512_DIGEST_LENGTH,
++		auth_token);
+ 	if (!secret.size()) {
+ 		printf("failed to unwrapSyntheticPasswordBlob\n");
+ 		return Free_Return(retval, weaver_key, &pwd);
+diff --git a/crypto/ext4crypt/Ext4Crypt.cpp b/crypto/ext4crypt/Ext4Crypt.cpp
+index 9360b1a2e16d86b70a7fa3603d42f6ee7dd27281..48913fef05e543507206e57a3547c8e231b4c2d7 100644
+--- a/crypto/ext4crypt/Ext4Crypt.cpp
++++ b/crypto/ext4crypt/Ext4Crypt.cpp
+@@ -158,13 +158,19 @@ static bool fill_key(const std::string& key, ext4_encryption_key* ext4_key) {
+     return true;
+ }
+ 
+-static std::string keyname(const std::string& raw_ref) {
++static const char* const KEY_NAME_PREFIXES[] = {
++    "ext4",
++    "f2fs",
++    "fscrypt",
++    nullptr,
++};
++
++static std::string keyname(const char* prefix, const std::string& raw_ref) {
+     std::ostringstream o;
+-    o << "ext4:";
+-    for (auto i : raw_ref) {
++    o << prefix << ":";
++    for (unsigned char i : raw_ref) {
+         o << std::hex << std::setw(2) << std::setfill('0') << (int)i;
+     }
+-    LOG(INFO) << "keyname is " << o.str() << "\n";
+     return o.str();
+ }
+ 
+@@ -184,17 +190,19 @@ static bool install_key(const std::string& key, std::string* raw_ref) {
+     ext4_encryption_key ext4_key;
+     if (!fill_key(key, &ext4_key)) return false;
+     *raw_ref = generate_key_ref(ext4_key.raw, ext4_key.size);
+-    auto ref = keyname(*raw_ref);
+     key_serial_t device_keyring;
+     if (!e4crypt_keyring(&device_keyring)) return false;
+-    key_serial_t key_id =
+-        add_key("logon", ref.c_str(), (void*)&ext4_key, sizeof(ext4_key), device_keyring);
+-    if (key_id == -1) {
+-        PLOG(ERROR) << "Failed to insert key into keyring " << device_keyring << "\n";
+-        return false;
++    for (const char* const* prefix = KEY_NAME_PREFIXES; *prefix != nullptr; ++prefix) {
++        auto ref = keyname(*prefix, *raw_ref);
++        key_serial_t key_id =
++            add_key("logon", ref.c_str(), (void*)&ext4_key, sizeof(ext4_key), device_keyring);
++        if (key_id == -1) {
++            PLOG(ERROR) << "Failed to insert key into keyring " << device_keyring << "\n";
++            return false;
++        }
++        LOG(DEBUG) << "Added key " << key_id << " (" << ref << ") to keyring "
++                   << device_keyring << " in process " << getpid() << "\n";
+     }
+-    LOG(DEBUG) << "Added key " << key_id << " (" << ref << ") to keyring " << device_keyring
+-               << " in process " << getpid() << "\n";
+     return true;
+ }
+ 
+diff --git a/crypto/ext4crypt/Keymaster3.cpp b/crypto/ext4crypt/Keymaster3.cpp
+index e9a37baadae5118d328ed5fcd42731677c573e9a..3c800ef440aa6dd5c17a6d171c5ea0b587ab1654 100644
+--- a/crypto/ext4crypt/Keymaster3.cpp
++++ b/crypto/ext4crypt/Keymaster3.cpp
+@@ -101,7 +101,11 @@ bool KeymasterOperation::finish(std::string* output) {
+ }
+ 
+ Keymaster::Keymaster() {
+-    mDevice = ::android::hardware::keymaster::V3_0::IKeymasterDevice::getService();
++    // Non-retrying lookup: if the keymaster HAL is not up (e.g. TEE
++    // unavailable in recovery, service stuck restarting), getService(retry)
++    // would block TWRP's main thread on the splash screen. Fail fast so the
++    // UI stays usable; decrypt will report failure instead.
++    mDevice = ::android::hardware::keymaster::V3_0::IKeymasterDevice::tryGetService();
+ }
+ 
+ /*bool Keymaster::generateKey(const AuthorizationSet& inParams, std::string* key) {
+@@ -168,7 +172,11 @@ bool Keymaster::upgradeKey(const std::string& oldKey, const AuthorizationSet& in
+ KeymasterOperation Keymaster::begin(KeyPurpose purpose, const std::string& key,
+                                     const AuthorizationSet& inParams,
+                                     AuthorizationSet* outParams) {
+-    auto keyBlob = blob2hidlVec(key);
++    std::string kmKey = key;
++    if (!kmKey.compare(0, kPkmBlob.size(), kPkmBlob)) {
++        kmKey.erase(0, kPkmBlob.size());
++    }
++    auto keyBlob = blob2hidlVec(kmKey);
+     uint64_t mOpHandle;
+     ErrorCode km_error;
+ 
+@@ -181,14 +189,6 @@ KeymasterOperation Keymaster::begin(KeyPurpose purpose, const std::string& key,
+         mOpHandle = operationHandle;
+     };
+ 
+-    // In A12 keymaster_key_blob format changed:
+-    // it have useless for us bytes in beginning, so remove them to correctly handle key
+-    std::string kmKey = dump::toString(keyBlob);
+-    if (!kmKey.compare(0, kPkmBlob.size(), kPkmBlob)) {
+-        kmKey.erase(0, kPkmBlob.size());
+-        keyBlob = blob2hidlVec(kmKey);
+-    }
+-
+     auto error = mDevice->begin(purpose, keyBlob, inParams.hidl_data(), hidlCb);
+     if (!error.isOk()) {
+         LOG(ERROR) << "begin failed: " << error.description() << "\n";
+diff --git a/crypto/ext4crypt/Keystore2Keymaster3.cpp b/crypto/ext4crypt/Keystore2Keymaster3.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..1a19664f2ba63f198f3422499f070aea6e058115
+--- /dev/null
++++ b/crypto/ext4crypt/Keystore2Keymaster3.cpp
+@@ -0,0 +1,81 @@
++#include "Keystore2Keymaster3.h"
++
++#include "Keymaster3.h"
++
++#include <sqlite3.h>
++
++#include <stdio.h>
++
++#include <keystore/authorization_set.h>
++
++bool Decrypt_Keystore2_Key_Blob(const std::string& handle,
++                                const uint8_t* iv, size_t iv_size,
++                                const uint8_t* input, size_t input_size,
++                                const std::vector<uint8_t>& auth_token,
++                                std::string* output) {
++    const std::string alias = "synthetic_password_" + handle;
++    std::string key_blob;
++    sqlite3* db = nullptr;
++    sqlite3_stmt* stmt = nullptr;
++    const char* query =
++        "SELECT b.blob FROM blobentry b JOIN keyentry k ON k.id=b.keyentryid "
++        "WHERE k.alias=? AND b.subcomponent_type=0 AND k.state=1 "
++        "ORDER BY b.id DESC LIMIT 1";
++
++    if (sqlite3_open_v2("/data/misc/keystore/persistent.sqlite", &db,
++            SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK ||
++            sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK ||
++            sqlite3_bind_text(stmt, 1, alias.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK ||
++            sqlite3_step(stmt) != SQLITE_ROW) {
++        printf("Failed to load Keystore2 alias '%s': %s\n", alias.c_str(),
++               db ? sqlite3_errmsg(db) : "database open failed");
++        if (stmt) sqlite3_finalize(stmt);
++        if (db) sqlite3_close(db);
++        return false;
++    }
++    const void* blob = sqlite3_column_blob(stmt, 0);
++    const int blob_size = sqlite3_column_bytes(stmt, 0);
++    if (blob && blob_size > 0)
++        key_blob.assign(static_cast<const char*>(blob), blob_size);
++    sqlite3_finalize(stmt);
++    sqlite3_close(db);
++    if (key_blob.empty()) {
++        printf("Keystore2 alias '%s' has no key blob\n", alias.c_str());
++        return false;
++    }
++
++    ::keystore::AuthorizationSetBuilder begin_params;
++    begin_params.Authorization(::keystore::TAG_ALGORITHM, ::keystore::Algorithm::AES);
++    begin_params.Authorization(::keystore::TAG_BLOCK_MODE, ::keystore::BlockMode::GCM);
++    begin_params.Padding(::keystore::PaddingMode::NONE);
++    begin_params.Authorization(::keystore::TAG_NONCE, iv, iv_size);
++    begin_params.Authorization(::keystore::TAG_MAC_LENGTH, 128U);
++    if (!auth_token.empty())
++        begin_params.Authorization(::keystore::TAG_AUTH_TOKEN,
++                                   auth_token.data(), auth_token.size());
++
++    android::vold::Keymaster keymaster;
++    if (!keymaster) {
++        printf("Failed to get Keymaster 3 service for Keystore2 blob\n");
++        return false;
++    }
++    auto operation = keymaster.begin(::keystore::KeyPurpose::DECRYPT, key_blob,
++                                     begin_params, nullptr);
++    if (!operation) {
++        printf("Keymaster failed to begin Keystore2 synthetic-password decrypt: %d\n",
++               static_cast<int32_t>(operation.errorCode()));
++        return false;
++    }
++    if (!operation.updateCompletely(
++            std::string(reinterpret_cast<const char*>(input), input_size), output)) {
++        printf("Keymaster failed to update Keystore2 synthetic-password decrypt\n");
++        return false;
++    }
++    std::string finish_output;
++    if (!operation.finish(&finish_output)) {
++        printf("Keymaster failed to finish Keystore2 synthetic-password decrypt\n");
++        return false;
++    }
++    output->append(finish_output);
++    return true;
++}
+diff --git a/crypto/ext4crypt/Keystore2Keymaster3.h b/crypto/ext4crypt/Keystore2Keymaster3.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..d336a8ccea59a6c64885ca90043139316e34e252
+--- /dev/null
++++ b/crypto/ext4crypt/Keystore2Keymaster3.h
+@@ -0,0 +1,16 @@
++#ifndef TWRP_KEYSTORE2_KEYMASTER3_H
++#define TWRP_KEYSTORE2_KEYMASTER3_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include <string>
++#include <vector>
++
++bool Decrypt_Keystore2_Key_Blob(const std::string& handle,
++                                const uint8_t* iv, size_t iv_size,
++                                const uint8_t* input, size_t input_size,
++                                const std::vector<uint8_t>& auth_token,
++                                std::string* output);
++
++#endif
+diff --git a/crypto/ext4crypt/MetadataCrypt_stub.cpp b/crypto/ext4crypt/MetadataCrypt_stub.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..8445486922dbda63191267b22dfde03020aaf116
+--- /dev/null
++++ b/crypto/ext4crypt/MetadataCrypt_stub.cpp
+@@ -0,0 +1,26 @@
++/*
++ * PAR (Huawei nova 3, EMUI9) has no /metadata partition and no metadata
++ * encryption; the 9.0 platform build auto-enables
++ * TW_INCLUDE_FBE_METADATA_DECRYPT, which makes partitionmanager call
++ * e4crypt_mount_metadata_encrypted(). With the forced keymaster@3.0 path the
++ * real MetadataCrypt.cpp (4.0 stack) is not built, so provide a stub that
++ * reports "no metadata encryption", making TWRP fall through to the standard
++ * FBE (e4crypt_initialize_global_de) flow.
++ */
++
++#include "MetadataCrypt.h"
++
++#include <string>
++
++bool e4crypt_mount_metadata_encrypted(const std::string& mount_point,
++                                      bool needs_encrypt,
++                                      const std::string& key_dir,
++                                      const std::string& blk_device,
++                                      std::string* crypto_blkdev) {
++    (void)mount_point;
++    (void)needs_encrypt;
++    (void)key_dir;
++    (void)blk_device;
++    (void)crypto_blkdev;
++    return false;
++}
+diff --git a/crypto/ext4crypt/include/keystore/authorization_set.h b/crypto/ext4crypt/include/keystore/authorization_set.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..0e57a196c7ac7c78dda0dbbcc5e1d0a9a96e7719
+--- /dev/null
++++ b/crypto/ext4crypt/include/keystore/authorization_set.h
+@@ -0,0 +1,336 @@
++/*
++ * Copyright 2014 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef SYSTEM_SECURITY_KEYSTORE_AUTHORIZATION_SET_H_
++#define SYSTEM_SECURITY_KEYSTORE_AUTHORIZATION_SET_H_
++
++#include "keymaster_tags.h"
++#include <vector>
++
++namespace keystore {
++
++class AuthorizationSetBuilder;
++
++/**
++ * An ordered collection of KeyParameters. It provides memory ownership and some convenient
++ * functionality for sorting, deduplicating, joining, and subtracting sets of KeyParameters.
++ * For serialization, wrap the backing store of this structure in a hidl_vec<KeyParameter>.
++ */
++class AuthorizationSet {
++  public:
++    /**
++     * Construct an empty, dynamically-allocated, growable AuthorizationSet.
++     */
++    AuthorizationSet() {};
++
++    // Copy constructor.
++    AuthorizationSet(const AuthorizationSet& other) : data_(other.data_) {}
++
++    // Move constructor.
++    AuthorizationSet(AuthorizationSet&& other) : data_(std::move(other.data_)) {}
++
++    // Constructor from hidl_vec<KeyParameter>
++    AuthorizationSet(const hidl_vec<KeyParameter>& other) {
++        *this = other;
++    }
++
++    // Copy assignment.
++    AuthorizationSet& operator=(const AuthorizationSet& other) {
++        data_ = other.data_;
++        return *this;
++    }
++
++    // Move assignment.
++    AuthorizationSet& operator=(AuthorizationSet&& other) {
++        data_ = std::move(other.data_);
++        return *this;
++    }
++
++    AuthorizationSet& operator=(const hidl_vec<KeyParameter>& other) {
++        if (other.size() > 0) {
++            data_.resize(other.size());
++            for (size_t i = 0; i < data_.size(); ++i) {
++                /* This makes a deep copy even of embedded blobs.
++                 * See assignment operator/copy constructor of hidl_vec.*/
++                data_[i] = other[i];
++            }
++        }
++        return *this;
++    }
++
++    /**
++     * Clear existing authorization set data
++     */
++    void Clear();
++
++    ~AuthorizationSet() = default;
++
++    /**
++     * Returns the size of the set.
++     */
++    size_t size() const { return data_.size(); }
++
++    /**
++     * Returns true if the set is empty.
++     */
++    bool empty() const { return size() == 0; }
++
++    /**
++     * Returns the data in the set, directly. Be careful with this.
++     */
++    const KeyParameter* data() const { return data_.data(); }
++
++    /**
++     * Sorts the set
++     */
++    void Sort();
++
++    /**
++     * Sorts the set and removes duplicates (inadvertently duplicating tags is easy to do with the
++     * AuthorizationSetBuilder).
++     */
++    void Deduplicate();
++
++    /**
++     * Adds all elements from \p set that are not already present in this AuthorizationSet.  As a
++     * side-effect, if \p set is not null this AuthorizationSet will end up sorted.
++     */
++    void Union(const AuthorizationSet& set);
++
++    /**
++     * Removes all elements in \p set from this AuthorizationSet.
++     */
++    void Subtract(const AuthorizationSet& set);
++
++    /**
++     * Returns the offset of the next entry that matches \p tag, starting from the element after \p
++     * begin.  If not found, returns -1.
++     */
++    int find(Tag tag, int begin = -1) const;
++
++    /**
++     * Removes the entry at the specified index. Returns true if successful, false if the index was
++     * out of bounds.
++     */
++    bool erase(int index);
++
++    /**
++     * Returns iterator (pointer) to beginning of elems array, to enable STL-style iteration
++     */
++    std::vector<KeyParameter>::const_iterator begin() const { return data_.begin(); }
++
++    /**
++     * Returns iterator (pointer) one past end of elems array, to enable STL-style iteration
++     */
++    std::vector<KeyParameter>::const_iterator end() const { return data_.end(); }
++
++    /**
++     * Returns the nth element of the set.
++     * Like for std::vector::operator[] there is no range check performed. Use of out of range
++     * indices is undefined.
++     */
++    KeyParameter& operator[](int n);
++
++    /**
++     * Returns the nth element of the set.
++     * Like for std::vector::operator[] there is no range check performed. Use of out of range
++     * indices is undefined.
++     */
++    const KeyParameter& operator[](int n) const;
++
++    /**
++     * Returns true if the set contains at least one instance of \p tag
++     */
++    bool Contains(Tag tag) const {
++        return find(tag) != -1;
++    }
++
++    template <TagType tag_type, Tag tag, typename ValueT>
++    bool Contains(TypedTag<tag_type, tag> ttag, const ValueT& value) const {
++        for (const auto& param: data_) {
++            auto entry = authorizationValue(ttag, param);
++            if (entry.isOk() && entry.value() == value) return true;
++        }
++        return false;
++    }
++    /**
++     * Returns the number of \p tag entries.
++     */
++    size_t GetTagCount(Tag tag) const;
++
++    template <typename T>
++    inline NullOr<const typename TypedTag2ValueType<T>::type&> GetTagValue(T tag) const {
++        auto entry = GetEntry(tag);
++        if (entry.isOk()) return authorizationValue(tag, entry.value());
++        return {};
++    }
++
++    void push_back(const KeyParameter& param) {
++        data_.push_back(param);
++    }
++    void push_back(KeyParameter&& param) {
++        data_.push_back(std::move(param));
++    }
++
++    /**
++     * Append the tag and enumerated value to the set.
++     * "val" may be exactly one parameter unless a boolean parameter is added.
++     * In this case "val" is omitted. This condition is checked at compile time by Authorization()
++     */
++    template <typename TypedTagT, typename... Value>
++    void push_back(TypedTagT tag, Value&&... val) {
++        push_back(Authorization(tag, std::forward<Value>(val)...));
++    }
++
++    template <typename Iterator>
++    void append(Iterator begin, Iterator end) {
++        while (begin != end) {
++            push_back(*begin);
++            ++begin;
++        }
++    }
++
++    hidl_vec<KeyParameter> hidl_data() const {
++        hidl_vec<KeyParameter> result;
++        result.setToExternal(const_cast<KeyParameter*>(data()), size());
++        return result;
++    }
++
++    void Serialize(std::ostream* out) const;
++    void Deserialize(std::istream* in);
++
++  private:
++    NullOr<const KeyParameter&> GetEntry(Tag tag) const;
++
++    std::vector<KeyParameter> data_;
++};
++
++class AuthorizationSetBuilder: public AuthorizationSet {
++  public:
++    template <typename TagType, typename... ValueType>
++    AuthorizationSetBuilder& Authorization(TagType ttag, ValueType&&... value) {
++        push_back(ttag, std::forward<ValueType>(value)...);
++        return *this;
++    }
++
++    template <Tag tag>
++    AuthorizationSetBuilder& Authorization(TypedTag<TagType::BYTES, tag> ttag, const uint8_t* data,
++                                           size_t data_length) {
++        hidl_vec<uint8_t> new_blob;
++        new_blob.setToExternal(const_cast<uint8_t*>(data), data_length);
++        push_back(ttag, std::move(new_blob));
++        return *this;
++    }
++
++    template <Tag tag>
++    AuthorizationSetBuilder& Authorization(TypedTag<TagType::BYTES, tag> ttag, const char* data,
++                                           size_t data_length) {
++        return Authorization(ttag, reinterpret_cast<const uint8_t*>(data), data_length);
++    }
++
++    AuthorizationSetBuilder& RsaKey(uint32_t key_size, uint64_t public_exponent);
++    AuthorizationSetBuilder& EcdsaKey(uint32_t key_size);
++    AuthorizationSetBuilder& AesKey(uint32_t key_size);
++    AuthorizationSetBuilder& HmacKey(uint32_t key_size);
++
++    AuthorizationSetBuilder& RsaSigningKey(uint32_t key_size, uint64_t public_exponent);
++    AuthorizationSetBuilder& RsaEncryptionKey(uint32_t key_size, uint64_t public_exponent);
++    AuthorizationSetBuilder& EcdsaSigningKey(uint32_t key_size);
++    AuthorizationSetBuilder& AesEncryptionKey(uint32_t key_size);
++
++    AuthorizationSetBuilder& SigningKey();
++    AuthorizationSetBuilder& EncryptionKey();
++    AuthorizationSetBuilder& NoDigestOrPadding();
++    AuthorizationSetBuilder& EcbMode();
++
++    AuthorizationSetBuilder& Digest(Digest digest) {
++        return Authorization(TAG_DIGEST, digest);
++    }
++
++    AuthorizationSetBuilder& Padding(PaddingMode padding) {
++        return Authorization(TAG_PADDING, padding);
++    }
++};
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::RsaKey(uint32_t key_size,
++                                                                uint64_t public_exponent) {
++    Authorization(TAG_ALGORITHM, Algorithm::RSA);
++    Authorization(TAG_KEY_SIZE, key_size);
++    Authorization(TAG_RSA_PUBLIC_EXPONENT, public_exponent);
++    return *this;
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::EcdsaKey(uint32_t key_size) {
++    Authorization(TAG_ALGORITHM, Algorithm::EC);
++    Authorization(TAG_KEY_SIZE, key_size);
++    return *this;
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::AesKey(uint32_t key_size) {
++    Authorization(TAG_ALGORITHM, Algorithm::AES);
++    return Authorization(TAG_KEY_SIZE, key_size);
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::HmacKey(uint32_t key_size) {
++    Authorization(TAG_ALGORITHM, Algorithm::HMAC);
++    Authorization(TAG_KEY_SIZE, key_size);
++    return SigningKey();
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::RsaSigningKey(uint32_t key_size,
++                                                                       uint64_t public_exponent) {
++    RsaKey(key_size, public_exponent);
++    return SigningKey();
++}
++
++inline AuthorizationSetBuilder&
++AuthorizationSetBuilder::RsaEncryptionKey(uint32_t key_size, uint64_t public_exponent) {
++    RsaKey(key_size, public_exponent);
++    return EncryptionKey();
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::EcdsaSigningKey(uint32_t key_size) {
++    EcdsaKey(key_size);
++    return SigningKey();
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::AesEncryptionKey(uint32_t key_size) {
++    AesKey(key_size);
++    return EncryptionKey();
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::SigningKey() {
++    Authorization(TAG_PURPOSE, KeyPurpose::SIGN);
++    return Authorization(TAG_PURPOSE, KeyPurpose::VERIFY);
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::EncryptionKey() {
++    Authorization(TAG_PURPOSE, KeyPurpose::ENCRYPT);
++    return Authorization(TAG_PURPOSE, KeyPurpose::DECRYPT);
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::NoDigestOrPadding() {
++    Authorization(TAG_DIGEST, Digest::NONE);
++    return Authorization(TAG_PADDING, PaddingMode::NONE);
++}
++
++inline AuthorizationSetBuilder& AuthorizationSetBuilder::EcbMode() {
++    return Authorization(TAG_BLOCK_MODE, BlockMode::ECB);
++}
++
++}  // namespace keystore
++
++#endif  // SYSTEM_SECURITY_KEYSTORE_AUTHORIZATION_SET_H_
+diff --git a/crypto/ext4crypt/include/keystore/keymaster_tags.h b/crypto/ext4crypt/include/keystore/keymaster_tags.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..05a33cd9c67ada190706f3929df154669201029f
+--- /dev/null
++++ b/crypto/ext4crypt/include/keystore/keymaster_tags.h
+@@ -0,0 +1,351 @@
++/*
++ * Copyright 2014 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef SYSTEM_SECURITY_KEYSTORE_KEYMASTER_TAGS_H_
++#define SYSTEM_SECURITY_KEYSTORE_KEYMASTER_TAGS_H_
++
++/**
++ * This header contains various definitions that make working with keymaster tags safer and easier.
++ *
++ * It makes use of a fair amount of template metaprogramming. The metaprogramming serves the purpose
++ * of making it impossible to make certain classes of mistakes when operating on keymaster
++ * authorizations.  For example, it's an error to create a KeyParameter with tag == Tag::PURPOSE
++ * and then to assign Algorithm::RSA to algorithm element of its union. But because the user
++ * must choose the union field, there could be a mismatch which the compiler has now way to
++ * diagnose.
++ *
++ * The machinery in this header solves these problems by describing which union field corresponds
++ * to which Tag. Central to this mechanism is the template TypedTag. It has zero size and binds a
++ * numeric Tag to a type that the compiler understands. By means of the macro DECLARE_TYPED_TAG,
++ * we declare types for each of the tags defined in hardware/interfaces/keymaster/2.0/types.hal.
++ *
++ * The macro DECLARE_TYPED_TAG(name) generates a typename TAG_name_t and a zero sized instance
++ * TAG_name. Once these typed tags have been declared we define metafunctions mapping the each tag
++ * to its value c++ type and the correct union element of KeyParameter. This is done by means of
++ * the macros MAKE_TAG_*VALUE_ACCESSOR, which generates TypedTag2ValueType, a metafunction mapping
++ * a typed tag to the corresponding c++ type, and access function, accessTagValue returning a
++ * reference to the correct element of KeyParameter.
++ * E.g.:
++ *      given "KeyParameter param;" then "accessTagValue(TAG_PURPOSE, param)"
++ *      yields a reference to param.f.purpose
++ * If used in an assignment the compiler can now check the compatibility of the assigned value.
++ *
++ * For convenience we also provide the constructor like function Authorization().
++ * Authorization takes a typed tag and a value and checks at compile time whether the value given
++ * is suitable for the given tag. At runtime it creates a new KeyParameter initialized with the
++ * given tag and value and returns it by value.
++ *
++ * The second convenience function, authorizationValue, allows access to the KeyParameter value in
++ * a safe way. It takes a typed tag and a KeyParameter and returns a reference to the value wrapped
++ * by NullOr. NullOr has out-of-band information about whether it is save to access the wrapped
++ * reference.
++ * E.g.:
++ *      auto param = Authorization(TAG_ALGORITM, Algorithm::RSA);
++ *      auto value1 = authorizationValue(TAG_PURPOSE, param);
++ *      auto value2 = authorizationValue(TAG_ALGORITM, param);
++ * value1.isOk() yields false, but value2.isOk() yields true, thus value2.value() is save to access.
++ */
++
++#include <android/hardware/keymaster/3.0/IHwKeymasterDevice.h>
++#include <hardware/hw_auth_token.h>
++#include <type_traits>
++
++namespace keystore {
++
++using ::android::hardware::keymaster::V3_0::Algorithm;
++using ::android::hardware::keymaster::V3_0::BlockMode;
++using ::android::hardware::keymaster::V3_0::Digest;
++using ::android::hardware::keymaster::V3_0::EcCurve;
++using ::android::hardware::keymaster::V3_0::ErrorCode;
++using ::android::hardware::keymaster::V3_0::HardwareAuthToken;
++using ::android::hardware::keymaster::V3_0::HardwareAuthenticatorType;
++using ::android::hardware::keymaster::V3_0::IKeymasterDevice;
++using ::android::hardware::keymaster::V3_0::KeyBlobUsageRequirements;
++using ::android::hardware::keymaster::V3_0::KeyCharacteristics;
++using ::android::hardware::keymaster::V3_0::KeyDerivationFunction;
++using ::android::hardware::keymaster::V3_0::KeyFormat;
++using ::android::hardware::keymaster::V3_0::KeyOrigin;
++using ::android::hardware::keymaster::V3_0::KeyParameter;
++using ::android::hardware::keymaster::V3_0::KeyPurpose;
++using ::android::hardware::keymaster::V3_0::PaddingMode;
++using ::android::hardware::keymaster::V3_0::Tag;
++using ::android::hardware::keymaster::V3_0::TagType;
++
++using ::android::hardware::hidl_vec;
++using ::android::hardware::Return;
++
++// The following create the numeric values that KM_TAG_PADDING and KM_TAG_DIGEST used to have.  We
++// need these old values to be able to support old keys that use them.
++static const int32_t KM_TAG_DIGEST_OLD = static_cast<int32_t>(TagType::ENUM) | 5;
++static const int32_t KM_TAG_PADDING_OLD = static_cast<int32_t>(TagType::ENUM) | 7;
++
++constexpr TagType typeFromTag(Tag tag) {
++    return static_cast<TagType>(static_cast<uint32_t>(tag) & static_cast<uint32_t>(0xf0000000));
++}
++
++/**
++ * TypedTag is a templatized version of Tag, which provides compile-time checking of
++ * keymaster tag types. Instances are convertible to Tag, so they can be used wherever
++ * Tag is expected, and because they encode the tag type it's possible to create
++ * function overloads that only operate on tags with a particular type.
++ */
++template <TagType tag_type, Tag tag> struct TypedTag {
++    inline TypedTag() {
++        // Ensure that it's impossible to create a TypedTag instance whose 'tag' doesn't have type
++        // 'tag_type'.  Attempting to instantiate a tag with the wrong type will result in a compile
++        // error (no match for template specialization StaticAssert<false>), with no run-time cost.
++        static_assert(typeFromTag(tag) == tag_type, "mismatch between tag and tag_type");
++    }
++    operator Tag() const { return tag; }
++};
++
++template <Tag tag> struct Tag2TypedTag { typedef TypedTag<typeFromTag(tag), tag> type; };
++
++template <Tag tag> struct Tag2String;
++
++#define _TAGS_STRINGIFY(x) #x
++#define TAGS_STRINGIFY(x) _TAGS_STRINGIFY(x)
++
++#define DECLARE_TYPED_TAG(name)                                                                    \
++    typedef typename Tag2TypedTag<Tag::name>::type TAG_##name##_t;                                 \
++    extern TAG_##name##_t TAG_##name;                                                              \
++    template <> struct Tag2String<Tag::name> {                                                     \
++        static const char* value() { return "Tag::" TAGS_STRINGIFY(name); }                        \
++    }
++
++DECLARE_TYPED_TAG(INVALID);
++DECLARE_TYPED_TAG(KEY_SIZE);
++DECLARE_TYPED_TAG(MAC_LENGTH);
++DECLARE_TYPED_TAG(CALLER_NONCE);
++DECLARE_TYPED_TAG(MIN_MAC_LENGTH);
++DECLARE_TYPED_TAG(RSA_PUBLIC_EXPONENT);
++DECLARE_TYPED_TAG(ECIES_SINGLE_HASH_MODE);
++DECLARE_TYPED_TAG(INCLUDE_UNIQUE_ID);
++DECLARE_TYPED_TAG(ACTIVE_DATETIME);
++DECLARE_TYPED_TAG(ORIGINATION_EXPIRE_DATETIME);
++DECLARE_TYPED_TAG(USAGE_EXPIRE_DATETIME);
++DECLARE_TYPED_TAG(MIN_SECONDS_BETWEEN_OPS);
++DECLARE_TYPED_TAG(MAX_USES_PER_BOOT);
++DECLARE_TYPED_TAG(ALL_USERS);
++DECLARE_TYPED_TAG(USER_ID);
++DECLARE_TYPED_TAG(USER_SECURE_ID);
++DECLARE_TYPED_TAG(NO_AUTH_REQUIRED);
++DECLARE_TYPED_TAG(AUTH_TIMEOUT);
++DECLARE_TYPED_TAG(ALLOW_WHILE_ON_BODY);
++DECLARE_TYPED_TAG(ALL_APPLICATIONS);
++DECLARE_TYPED_TAG(APPLICATION_ID);
++DECLARE_TYPED_TAG(APPLICATION_DATA);
++DECLARE_TYPED_TAG(CREATION_DATETIME);
++DECLARE_TYPED_TAG(ROLLBACK_RESISTANT);
++DECLARE_TYPED_TAG(ROOT_OF_TRUST);
++DECLARE_TYPED_TAG(ASSOCIATED_DATA);
++DECLARE_TYPED_TAG(NONCE);
++DECLARE_TYPED_TAG(AUTH_TOKEN);
++DECLARE_TYPED_TAG(BOOTLOADER_ONLY);
++DECLARE_TYPED_TAG(OS_VERSION);
++DECLARE_TYPED_TAG(OS_PATCHLEVEL);
++DECLARE_TYPED_TAG(UNIQUE_ID);
++DECLARE_TYPED_TAG(ATTESTATION_CHALLENGE);
++DECLARE_TYPED_TAG(ATTESTATION_APPLICATION_ID);
++DECLARE_TYPED_TAG(RESET_SINCE_ID_ROTATION);
++
++DECLARE_TYPED_TAG(PURPOSE);
++DECLARE_TYPED_TAG(ALGORITHM);
++DECLARE_TYPED_TAG(BLOCK_MODE);
++DECLARE_TYPED_TAG(DIGEST);
++DECLARE_TYPED_TAG(PADDING);
++DECLARE_TYPED_TAG(BLOB_USAGE_REQUIREMENTS);
++DECLARE_TYPED_TAG(ORIGIN);
++DECLARE_TYPED_TAG(USER_AUTH_TYPE);
++DECLARE_TYPED_TAG(KDF);
++DECLARE_TYPED_TAG(EC_CURVE);
++
++template <typename... Elems> struct MetaList {};
++
++using all_tags_t = MetaList<
++    TAG_INVALID_t, TAG_KEY_SIZE_t, TAG_MAC_LENGTH_t, TAG_CALLER_NONCE_t, TAG_MIN_MAC_LENGTH_t,
++    TAG_RSA_PUBLIC_EXPONENT_t, TAG_ECIES_SINGLE_HASH_MODE_t, TAG_INCLUDE_UNIQUE_ID_t,
++    TAG_ACTIVE_DATETIME_t, TAG_ORIGINATION_EXPIRE_DATETIME_t, TAG_USAGE_EXPIRE_DATETIME_t,
++    TAG_MIN_SECONDS_BETWEEN_OPS_t, TAG_MAX_USES_PER_BOOT_t, TAG_ALL_USERS_t, TAG_USER_ID_t,
++    TAG_USER_SECURE_ID_t, TAG_NO_AUTH_REQUIRED_t, TAG_AUTH_TIMEOUT_t, TAG_ALLOW_WHILE_ON_BODY_t,
++    TAG_ALL_APPLICATIONS_t, TAG_APPLICATION_ID_t, TAG_APPLICATION_DATA_t, TAG_CREATION_DATETIME_t,
++    TAG_ROLLBACK_RESISTANT_t, TAG_ROOT_OF_TRUST_t, TAG_ASSOCIATED_DATA_t, TAG_NONCE_t,
++    TAG_AUTH_TOKEN_t, TAG_BOOTLOADER_ONLY_t, TAG_OS_VERSION_t, TAG_OS_PATCHLEVEL_t, TAG_UNIQUE_ID_t,
++    TAG_ATTESTATION_CHALLENGE_t, TAG_ATTESTATION_APPLICATION_ID_t, TAG_RESET_SINCE_ID_ROTATION_t,
++    TAG_PURPOSE_t, TAG_ALGORITHM_t, TAG_BLOCK_MODE_t, TAG_DIGEST_t, TAG_PADDING_t,
++    TAG_BLOB_USAGE_REQUIREMENTS_t, TAG_ORIGIN_t, TAG_USER_AUTH_TYPE_t, TAG_KDF_t, TAG_EC_CURVE_t>;
++
++/* implementation in keystore_utils.cpp */
++extern const char* stringifyTag(Tag tag);
++
++template <typename TypedTagType> struct TypedTag2ValueType;
++
++#define MAKE_TAG_VALUE_ACCESSOR(tag_type, field_name)                                              \
++    template <Tag tag> struct TypedTag2ValueType<TypedTag<tag_type, tag>> {                        \
++        typedef decltype(static_cast<KeyParameter*>(nullptr)->field_name) type;                    \
++    };                                                                                             \
++    template <Tag tag>                                                                             \
++    inline auto accessTagValue(TypedTag<tag_type, tag>, const KeyParameter& param)                 \
++        ->const decltype(param.field_name)& {                                                      \
++        return param.field_name;                                                                   \
++    }                                                                                              \
++    template <Tag tag>                                                                             \
++    inline auto accessTagValue(TypedTag<tag_type, tag>, KeyParameter& param)                       \
++        ->decltype(param.field_name)& {                                                            \
++        return param.field_name;                                                                   \
++    }
++
++MAKE_TAG_VALUE_ACCESSOR(TagType::ULONG, f.longInteger)
++MAKE_TAG_VALUE_ACCESSOR(TagType::ULONG_REP, f.longInteger)
++MAKE_TAG_VALUE_ACCESSOR(TagType::DATE, f.dateTime)
++MAKE_TAG_VALUE_ACCESSOR(TagType::UINT, f.integer)
++MAKE_TAG_VALUE_ACCESSOR(TagType::UINT_REP, f.integer)
++MAKE_TAG_VALUE_ACCESSOR(TagType::BOOL, f.boolValue)
++MAKE_TAG_VALUE_ACCESSOR(TagType::BYTES, blob)
++MAKE_TAG_VALUE_ACCESSOR(TagType::BIGNUM, blob)
++
++#define MAKE_TAG_ENUM_VALUE_ACCESSOR(typed_tag, field_name)                                        \
++    template <> struct TypedTag2ValueType<decltype(typed_tag)> {                                   \
++        typedef decltype(static_cast<KeyParameter*>(nullptr)->field_name) type;                    \
++    };                                                                                             \
++    inline auto accessTagValue(decltype(typed_tag), const KeyParameter& param)                     \
++        ->const decltype(param.field_name)& {                                                      \
++        return param.field_name;                                                                   \
++    }                                                                                              \
++    inline auto accessTagValue(decltype(typed_tag), KeyParameter& param)                           \
++        ->decltype(param.field_name)& {                                                            \
++        return param.field_name;                                                                   \
++    }
++
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_ALGORITHM, f.algorithm)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_BLOB_USAGE_REQUIREMENTS, f.keyBlobUsageRequirements)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_BLOCK_MODE, f.blockMode)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_DIGEST, f.digest)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_EC_CURVE, f.ecCurve)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_KDF, f.keyDerivationFunction)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_ORIGIN, f.origin)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_PADDING, f.paddingMode)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_PURPOSE, f.purpose)
++MAKE_TAG_ENUM_VALUE_ACCESSOR(TAG_USER_AUTH_TYPE, f.hardwareAuthenticatorType)
++
++template <TagType tag_type, Tag tag, typename ValueT>
++inline KeyParameter makeKeyParameter(TypedTag<tag_type, tag> ttag, ValueT&& value) {
++    KeyParameter param;
++    param.tag = tag;
++    param.f.longInteger = 0;
++    accessTagValue(ttag, param) = std::forward<ValueT>(value);
++    return param;
++}
++
++// the boolean case
++template <Tag tag> inline KeyParameter makeKeyParameter(TypedTag<TagType::BOOL, tag>) {
++    KeyParameter param;
++    param.tag = tag;
++    param.f.boolValue = true;
++    return param;
++}
++
++template <typename... Pack> struct FirstOrNoneHelper;
++template <typename First> struct FirstOrNoneHelper<First> { typedef First type; };
++template <> struct FirstOrNoneHelper<> {
++    struct type {};
++};
++
++template <typename... Pack> using FirstOrNone = typename FirstOrNoneHelper<Pack...>::type;
++
++template <TagType tag_type, Tag tag, typename... Args>
++inline KeyParameter Authorization(TypedTag<tag_type, tag> ttag, Args&&... args) {
++    static_assert(tag_type != TagType::BOOL || (sizeof...(args) == 0),
++                  "TagType::BOOL Authorizations do not take parameters. Presence is truth.");
++    static_assert(tag_type == TagType::BOOL || (sizeof...(args) == 1),
++                  "Authorization other then TagType::BOOL take exactly one parameter.");
++    static_assert(
++        tag_type == TagType::BOOL ||
++            std::is_convertible<std::remove_cv_t<std::remove_reference_t<FirstOrNone<Args...>>>,
++                                typename TypedTag2ValueType<TypedTag<tag_type, tag>>::type>::value,
++        "Invalid argument type for given tag.");
++
++    return makeKeyParameter(ttag, std::forward<Args>(args)...);
++}
++
++/**
++ * This class wraps a (mostly return) value and stores whether or not the wrapped value is valid out
++ * of band. Note that if the wrapped value is a reference it is unsafe to access the value if
++ * !isOk(). If the wrapped type is a pointer or value and !isOk(), it is still safe to access the
++ * wrapped value. In this case the pointer will be NULL though, and the value will be default
++ * constructed.
++ */
++template <typename ValueT> class NullOr {
++    template <typename T> struct reference_initializer {
++        static T&& init() { return *static_cast<std::remove_reference_t<T>*>(nullptr); }
++    };
++    template <typename T> struct pointer_initializer {
++        static T init() { return nullptr; }
++    };
++    template <typename T> struct value_initializer {
++        static T init() { return T(); }
++    };
++    template <typename T>
++    using initializer_t =
++        std::conditional_t<std::is_lvalue_reference<T>::value, reference_initializer<T>,
++                           std::conditional_t<std::is_pointer<T>::value, pointer_initializer<T>,
++                                              value_initializer<T>>>;
++
++  public:
++    NullOr() : value_(initializer_t<ValueT>::init()), null_(true) {}
++    NullOr(ValueT&& value) : value_(std::forward<ValueT>(value)), null_(false) {}
++
++    bool isOk() const { return !null_; }
++
++    const ValueT& value() const & { return value_; }
++    ValueT& value() & { return value_; }
++    ValueT&& value() && { return std::move(value_); }
++
++  private:
++    ValueT value_;
++    bool null_;
++};
++
++template <typename T> std::remove_reference_t<T> NullOrOr(T&& v) {
++    if (v.isOk()) return v;
++    return {};
++}
++
++template <typename Head, typename... Tail>
++std::remove_reference_t<Head> NullOrOr(Head&& head, Tail&&... tail) {
++    if (head.isOk()) return head;
++    return NullOrOr(std::forward<Tail>(tail)...);
++}
++
++template <typename Default, typename Wrapped>
++std::remove_reference_t<Wrapped> defaultOr(NullOr<Wrapped>&& optional, Default&& def) {
++    static_assert(std::is_convertible<std::remove_reference_t<Default>,
++                                      std::remove_reference_t<Wrapped>>::value,
++                  "Type of default value must match the type wrapped by NullOr");
++    if (optional.isOk()) return optional.value();
++    return def;
++}
++
++template <TagType tag_type, Tag tag>
++inline NullOr<const typename TypedTag2ValueType<TypedTag<tag_type, tag>>::type&>
++authorizationValue(TypedTag<tag_type, tag> ttag, const KeyParameter& param) {
++    if (tag != param.tag) return {};
++    return accessTagValue(ttag, param);
++}
++
++}  // namespace keymaster
++
++#endif  // SYSTEM_SECURITY_KEYSTORE_KEYMASTER_TAGS_H_
+diff --git a/crypto/ext4crypt/include/keystore/keystore_hidl_support.h b/crypto/ext4crypt/include/keystore/keystore_hidl_support.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c64d2afa84f2fcd9f28e42d02612309085b04dc
+--- /dev/null
++++ b/crypto/ext4crypt/include/keystore/keystore_hidl_support.h
+@@ -0,0 +1,130 @@
++/*
++ **
++ ** Copyright 2016, The Android Open Source Project
++ **
++ ** Licensed under the Apache License, Version 2.0 (the "License");
++ ** you may not use this file except in compliance with the License.
++ ** You may obtain a copy of the License at
++ **
++ **     http://www.apache.org/licenses/LICENSE-2.0
++ **
++ ** Unless required by applicable law or agreed to in writing, software
++ ** distributed under the License is distributed on an "AS IS" BASIS,
++ ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ ** See the License for the specific language governing permissions and
++ ** limitations under the License.
++ */
++
++#ifndef KEYSTORE_KEYSTORE_HIDL_SUPPORT_H_
++#define KEYSTORE_KEYSTORE_HIDL_SUPPORT_H_
++
++#include <android/hardware/keymaster/3.0/IKeymasterDevice.h>
++#include <hidl/Status.h>
++#include <keystore/keymaster_tags.h>
++#include <ostream>
++#include <sstream>
++#include <string>
++
++namespace keystore {
++
++inline static std::ostream& formatArgs(std::ostream& out) {
++    return out;
++}
++
++template <typename First, typename... Args>
++inline static std::ostream& formatArgs(std::ostream& out, First&& first, Args&&... args) {
++    out << first;
++    return formatArgs(out, args...);
++}
++
++template <typename... Args> inline static std::string argsToString(Args&&... args) {
++    std::stringstream s;
++    formatArgs(s, args...);
++    return s.str();
++}
++
++template <typename... Msgs>
++inline static ErrorCode ksHandleHidlError(const Return<ErrorCode>& error, Msgs&&... msgs) {
++    if (!error.isOk()) {
++        ALOGE("HIDL call failed with %s @ %s", error.description().c_str(),
++              argsToString(msgs...).c_str());
++        return ErrorCode::UNKNOWN_ERROR;
++    }
++    return ErrorCode(error);
++}
++template <typename... Msgs>
++inline static ErrorCode ksHandleHidlError(const Return<void>& error, Msgs&&... msgs) {
++    if (!error.isOk()) {
++        ALOGE("HIDL call failed with %s @ %s", error.description().c_str(),
++              argsToString(msgs...).c_str());
++        return ErrorCode::UNKNOWN_ERROR;
++    }
++    return ErrorCode::OK;
++}
++
++#define KS_HANDLE_HIDL_ERROR(rc)                                                                   \
++    ::keystore::ksHandleHidlError(rc, __FILE__, ":", __LINE__, ":", __PRETTY_FUNCTION__)
++
++inline static hidl_vec<uint8_t> blob2hidlVec(const uint8_t* data, const size_t length,
++                                             bool inPlace = true) {
++    hidl_vec<uint8_t> result;
++    if (inPlace)
++        result.setToExternal(const_cast<unsigned char*>(data), length);
++    else {
++        result.resize(length);
++        memcpy(&result[0], data, length);
++    }
++    return result;
++}
++
++inline static hidl_vec<uint8_t> blob2hidlVec(const std::string& value) {
++    hidl_vec<uint8_t> result;
++    result.setToExternal(
++        reinterpret_cast<uint8_t*>(const_cast<std::string::value_type*>(value.data())),
++        static_cast<size_t>(value.size()));
++    return result;
++}
++
++inline static hidl_vec<uint8_t> blob2hidlVec(const std::vector<uint8_t>& blob) {
++    hidl_vec<uint8_t> result;
++    result.setToExternal(const_cast<uint8_t*>(blob.data()), static_cast<size_t>(blob.size()));
++    return result;
++}
++
++template <typename T, typename OutIter>
++inline static OutIter copy_bytes_to_iterator(const T& value, OutIter dest) {
++    const uint8_t* value_ptr = reinterpret_cast<const uint8_t*>(&value);
++    return std::copy(value_ptr, value_ptr + sizeof(value), dest);
++}
++
++inline static hidl_vec<uint8_t> authToken2HidlVec(const HardwareAuthToken& token) {
++    static_assert(
++        std::is_same<decltype(token.hmac), ::android::hardware::hidl_array<uint8_t, 32>>::value,
++        "This function assumes token HMAC is 32 bytes, but it might not be.");
++    static_assert(1 /* version size */ + sizeof(token.challenge) + sizeof(token.userId) +
++                          sizeof(token.authenticatorId) + sizeof(token.authenticatorType) +
++                          sizeof(token.timestamp) + 32 /* HMAC size */
++                      == sizeof(hw_auth_token_t),
++                  "HardwareAuthToken content size does not match hw_auth_token_t size");
++
++    hidl_vec<uint8_t> result;
++    result.resize(sizeof(hw_auth_token_t));
++    auto pos = result.begin();
++    *pos++ = 0;  // Version byte
++    pos = copy_bytes_to_iterator(token.challenge, pos);
++    pos = copy_bytes_to_iterator(token.userId, pos);
++    pos = copy_bytes_to_iterator(token.authenticatorId, pos);
++    pos = copy_bytes_to_iterator(token.authenticatorType, pos);
++    pos = copy_bytes_to_iterator(token.timestamp, pos);
++    pos = std::copy(token.hmac.data(), token.hmac.data() + token.hmac.size(), pos);
++
++    return result;
++}
++
++inline std::string hidlVec2String(const hidl_vec<uint8_t>& value) {
++    return std::string(reinterpret_cast<const std::string::value_type*>(&value[0]), value.size());
++}
++
++}  // namespace keystore
++
++#endif  // KEYSTORE_KEYSTORE_HIDL_SUPPORT_H_
+diff --git a/crypto/fde/Android.mk b/crypto/fde/Android.mk
+index aafd7a0bce1cfcd33d03771bd7258176c5424d14..39ceb227ea77246942cc1d1be5c75a78913b6d04 100644
+--- a/crypto/fde/Android.mk
++++ b/crypto/fde/Android.mk
+@@ -16,26 +16,31 @@ endif
+ 
+ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 26; echo $$?),0)
+     #8.0 or higher
+-    LOCAL_C_INCLUDES +=  external/boringssl/src/include
++    LOCAL_C_INCLUDES += $(LOCAL_PATH)/../ext4crypt/include external/boringssl/src/include
+     LOCAL_SHARED_LIBRARIES += libselinux libc libc++ libbase libcrypto libcutils libkeymaster_messages libhardware libprotobuf-cpp-lite libe4crypt android.hardware.keymaster@3.0 libkeystore_binder libhidlbase libutils libbinder
+     ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
+-        #9.0 rules
+-        LOCAL_CFLAGS += -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter -Wno-comment
+-        LOCAL_SHARED_LIBRARIES += android.hardware.keymaster@4.0 libkeymaster4support libkeyutils
+-        LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=4
++        #9.0 platform, but PAR (Huawei EMUI9) exposes keymaster@3.0 only:
++        # force the 8.0/3.0 keymaster path.
++        LOCAL_CFLAGS += -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter -Wno-comment -Wno-macro-redefined
++        ifneq ($(wildcard system/core/libkeyutils/Android.bp),)
++            #only present in some 8.0 trees and should be in all 8.1 trees
++            LOCAL_SHARED_LIBRARIES += libkeyutils
++        endif
++        # libsoftkeymaster dropped (not present in 9.0 tree)
++        LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=3
+     else
+         #8.x rules
+         ifneq ($(wildcard system/core/libkeyutils/Android.bp),)
+             #only present in some 8.0 trees and should be in all 8.1 trees
+             LOCAL_SHARED_LIBRARIES += libkeyutils
+         endif
+-        LOCAL_SHARED_LIBRARIES += libsoftkeymaster
++        # libsoftkeymaster dropped (not present in 9.0 tree)
+         LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=3
+     endif
+ else
+     # <= 7.x rules
+     ifneq ($(wildcard hardware/libhardware/include/hardware/keymaster0.h),)
+-        LOCAL_C_INCLUDES +=  external/boringssl/src/include
++        LOCAL_C_INCLUDES += $(LOCAL_PATH)/../ext4crypt/include external/boringssl/src/include
+         LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=1
+     else
+         LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=0
+@@ -71,26 +76,31 @@ endif
+ 
+ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 26; echo $$?),0)
+     #8.0 or higher
+-    LOCAL_C_INCLUDES +=  external/boringssl/src/include
++    LOCAL_C_INCLUDES += $(LOCAL_PATH)/../ext4crypt/include external/boringssl/src/include
+     LOCAL_SHARED_LIBRARIES += libselinux libc libc++ libbase libcrypto libcutils libkeymaster_messages libhardware libprotobuf-cpp-lite libe4crypt android.hardware.keymaster@3.0 libkeystore_binder libhidlbase libutils libbinder
+     ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
+-        #9.0 rules
+-        LOCAL_CFLAGS += -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter -Wno-comment
+-        LOCAL_SHARED_LIBRARIES += android.hardware.keymaster@4.0 libkeymaster4support libkeyutils
+-        LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=4
++        #9.0 platform, but PAR (Huawei EMUI9) exposes keymaster@3.0 only:
++        # force the 8.0/3.0 keymaster path.
++        LOCAL_CFLAGS += -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter -Wno-comment -Wno-macro-redefined
++        ifneq ($(wildcard system/core/libkeyutils/Android.bp),)
++            #only present in some 8.0 trees and should be in all 8.1 trees
++            LOCAL_SHARED_LIBRARIES += libkeyutils
++        endif
++        # libsoftkeymaster dropped (not present in 9.0 tree)
++        LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=3
+     else
+         #8.x rules
+         ifneq ($(wildcard system/core/libkeyutils/Android.bp),)
+             #only present in some 8.0 trees and should be in all 8.1 trees
+             LOCAL_SHARED_LIBRARIES += libkeyutils
+         endif
+-        LOCAL_SHARED_LIBRARIES += libsoftkeymaster
++        # libsoftkeymaster dropped (not present in 9.0 tree)
+         LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=3
+     endif
+ else
+     # <= 7.x rules
+     ifneq ($(wildcard hardware/libhardware/include/hardware/keymaster0.h),)
+-        LOCAL_C_INCLUDES +=  external/boringssl/src/include
++        LOCAL_C_INCLUDES += $(LOCAL_PATH)/../ext4crypt/include external/boringssl/src/include
+         LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=1
+     else
+         LOCAL_CFLAGS += -DTW_KEYMASTER_MAX_API=0
+diff --git a/data.cpp b/data.cpp
+index bc31a650141b007d48707e5e8c885d8dcb791b53..deeea1403edeb862673677aeec684c45970e58ec 100755
+--- a/data.cpp
++++ b/data.cpp
+@@ -22,6 +22,7 @@
+ #include <sstream>
+ #include <fstream>
+ #include <cctype>
++#include <vector>
+ #include <cutils/properties.h>
+ #include <unistd.h>
+ 
+@@ -60,6 +61,26 @@ InfoManager                             DataManager::mConst;    // Data that is
+ 
+ extern bool datamedia;
+ 
++static FILE* OpenBatteryFile(const char* file_name) {
++	vector<string> battery_paths;
++#ifdef TW_CUSTOM_BATTERY_PATH
++	battery_paths.push_back(EXPAND(TW_CUSTOM_BATTERY_PATH));
++#endif
++#ifdef TW_CUSTOM_BATTERY_FALLBACK_PATH
++	battery_paths.push_back(EXPAND(TW_CUSTOM_BATTERY_FALLBACK_PATH));
++#else
++	battery_paths.push_back("/sys/class/power_supply/battery");
++#endif
++
++	for (const string& battery_path : battery_paths) {
++		string path = battery_path + "/" + file_name;
++		FILE* file = fopen(path.c_str(), "rt");
++		if (file)
++			return file;
++	}
++	return nullptr;
++}
++
+ #ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+ pthread_mutex_t DataManager::m_valuesLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
+ #else
+@@ -895,6 +916,11 @@ void DataManager::SetDefaultValues()
+ 	mPersist.SetValue("tw_never_show_system_ro_page", "0");
+ 	mPersist.SetValue("tw_language", EXPAND(TW_DEFAULT_LANGUAGE));
+ 	LOGINFO("LANG: %s\n", EXPAND(TW_DEFAULT_LANGUAGE));
++#ifdef TW_FACTORY_RESET_FORMAT_DATA
++	mConst.SetValue("tw_factory_reset_format_data", "1");
++#else
++	mConst.SetValue("tw_factory_reset_format_data", "0");
++#endif
+ 
+ 	mData.SetValue("tw_has_adopted_storage", "0");
+ 
+@@ -1021,13 +1047,7 @@ int DataManager::GetMagicValue(const string& varName, string& value)
+ 		if (curTime.tv_sec > nextSecCheck)
+ 		{
+ 			char cap_s[4];
+-#ifdef TW_CUSTOM_BATTERY_PATH
+-			string capacity_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
+-			capacity_file += "/capacity";
+-			FILE * cap = fopen(capacity_file.c_str(),"rt");
+-#else
+-			FILE * cap = fopen("/sys/class/power_supply/battery/capacity","rt");
+-#endif
++			FILE * cap = OpenBatteryFile("capacity");
+ 			if (cap) {
+ 				fgets(cap_s, 4, cap);
+ 				fclose(cap);
+@@ -1035,13 +1055,7 @@ int DataManager::GetMagicValue(const string& varName, string& value)
+ 				if (lastVal > 100)	lastVal = 101;
+ 				if (lastVal < 0)	lastVal = 0;
+ 			}
+-#ifdef TW_CUSTOM_BATTERY_PATH
+-			string status_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
+-			status_file += "/status";
+-			cap = fopen(status_file.c_str(),"rt");
+-#else
+-			cap = fopen("/sys/class/power_supply/battery/status","rt");
+-#endif
++			cap = OpenBatteryFile("status");
+ 			if (cap) {
+ 				fgets(cap_s, 2, cap);
+ 				fclose(cap);
+diff --git a/gui/action.cpp b/gui/action.cpp
+index f52b9994fc53a6795b49dfb383196e4a1c6833bf..f179c2f189b8e7576c046e7abd7805f866d8f650 100755
+--- a/gui/action.cpp
++++ b/gui/action.cpp
+@@ -571,8 +571,14 @@ int GUIAction::key(std::string arg)
+ int GUIAction::page(std::string arg)
+ {
+ 	property_set("twrp.action_complete", "0");
++	std::string current_page = PageManager::GetCurrentPage();
+ 	std::string page_name = gui_parse_text(arg);
+-	return gui_changePage(page_name);
++	int ret = gui_changePage(page_name);
++	if (current_page.compare(0, 8, "settings") == 0 &&
++			page_name.compare(0, 8, "settings") != 0) {
++		DataManager::Flush();
++	}
++	return ret;
+ }
+ 
+ int GUIAction::reload(std::string arg __unused)
+@@ -1208,7 +1214,14 @@ int GUIAction::wipe(std::string arg)
+ 		}
+ #endif
+ 	}
+-	PartitionManager.Update_System_Details();
++	bool formatted_fbe_data = (arg == "DATAMEDIA");
++#ifdef TW_FACTORY_RESET_FORMAT_DATA
++	formatted_fbe_data = formatted_fbe_data || (arg == "data");
++#endif
++	if (formatted_fbe_data)
++		LOGINFO("Skipping post-format data probe; Android will initialize FBE media storage.\n");
++	else
++		PartitionManager.Update_System_Details();
+ 	if (ret_val)
+ 		ret_val = 0; // 0 is success
+ 	else
+@@ -1967,7 +1980,7 @@ int GUIAction::setlanguage(std::string arg __unused)
+ 	operation_start("Set Language");
+ 	PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
+ 	PageManager::RequestReload();
+-	op_status = 0; // success
++	op_status = DataManager::Flush() == 0 ? 0 : 1;
+ 
+ 	operation_end(op_status);
+ 	return 0;
+diff --git a/gui/theme/common/languages/en.xml b/gui/theme/common/languages/en.xml
+index a85fa5334d1a7bfbe2e96aebe92462e343729a95..52b69da8152d23bb397bc2099d4ac5331d38a00a 100755
+--- a/gui/theme/common/languages/en.xml
++++ b/gui/theme/common/languages/en.xml
+@@ -139,6 +139,7 @@
+ 		<string name="factory_reset_btn">Factory Reset</string>
+ 		<string name="factory_reset1">Wipes Data, Cache, and Dalvik</string>
+ 		<string name="factory_reset2">(not including internal storage)</string>
++		<string name="factory_reset_includes_internal">Includes internal storage: photos and downloads will be erased</string>
+ 		<string name="factory_reset3">Most of the time this is</string>
+ 		<string name="factory_reset4">the only wipe that you need.</string>
+ 		<string name="factory_reset5">(not including users/lockscreen)</string>
+diff --git a/gui/theme/common/portrait.xml b/gui/theme/common/portrait.xml
+index 1b48fb9896b4d16363e8569cf71312f16c32dc03..2dd66bd07b003c8bcdd351e6e3e96d9dcbea8db4 100755
+--- a/gui/theme/common/portrait.xml
++++ b/gui/theme/common/portrait.xml
+@@ -1037,16 +1037,29 @@
+ 			</text>
+ 
+ 			<text style="text_m_accent">
++				<condition var1="tw_factory_reset_format_data" var2="0"/>
+ 				<placement x="%center_x%" y="%row3_y%" placement="5"/>
+ 				<text>{@factory_reset5=(not including users/lockscreen)}</text>
+ 			</text>
+ 
+ 			<text style="text_m_accent">
+-				<condition var1="tw_has_data_media" var2="1"/>
++				<conditions>
++					<condition var1="tw_has_data_media" var2="1"/>
++					<condition var1="tw_factory_reset_format_data" var2="0"/>
++				</conditions>
+ 				<placement x="%center_x%" y="%row4_y%" placement="5"/>
+ 				<text>{@factory_reset2=(not including internal storage)}</text>
+ 			</text>
+ 
++			<text style="text_m_accent">
++				<conditions>
++					<condition var1="tw_has_data_media" var2="1"/>
++					<condition var1="tw_factory_reset_format_data" var2="1"/>
++				</conditions>
++				<placement x="%center_x%" y="%row4_y%" placement="5"/>
++				<text>{@factory_reset_includes_internal=Includes internal storage: photos and downloads will be erased}</text>
++			</text>
++
+ 			<text style="text_m_accent">
+ 				<conditions>
+ 					<condition var1="tw_has_android_secure" var2="1"/>
+diff --git a/gui/theme/extra-languages/languages/zh_CN.xml b/gui/theme/extra-languages/languages/zh_CN.xml
+index e10a60aaa60709368286f51513806710bd1fd827..77617a305e5d0bf017fdce07402b8d2b92514801 100644
+--- a/gui/theme/extra-languages/languages/zh_CN.xml
++++ b/gui/theme/extra-languages/languages/zh_CN.xml
+@@ -139,6 +139,7 @@
+ 		<string name="factory_reset_btn">恢复出厂</string>
+ 		<string name="factory_reset1">这将会清空 Data、Cache 分区和 Dalvik 缓存</string>
+ 		<string name="factory_reset2">（不会清除内置存储/sdcard）</string>
++		<string name="factory_reset_includes_internal">包括内置存储：照片、下载等文件也会被删除</string>
+ 		<string name="factory_reset3">在大多数情况下，您只需要</string>
+ 		<string name="factory_reset4">执行此操作即可。</string>
+ 		<string name="factory_reset5">（不包括用户/锁屏）</string>
+diff --git a/partition.cpp b/partition.cpp
+index 3f25772aa2bd62d6305f896467e881fe8d0e4c31..5ecb131faa3ba1786cdd1d8551a2d6cc08e82e58 100755
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include <stdio.h>
++#include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/mount.h>
+@@ -83,6 +84,71 @@ static int auto_index = 0; // v2 fstab allows you to specify a mount point of "a
+ extern struct selabel_handle *selinux_handle;
+ extern bool datamedia;
+ 
++#ifdef TW_F2FS_DISABLE_NAT_BITS
++static bool read_le32_at(int fd, off_t offset, uint32_t& value) {
++	unsigned char bytes[4];
++	if (pread(fd, bytes, sizeof(bytes), offset) != sizeof(bytes))
++		return false;
++	value = static_cast<uint32_t>(bytes[0]) |
++		(static_cast<uint32_t>(bytes[1]) << 8) |
++		(static_cast<uint32_t>(bytes[2]) << 16) |
++		(static_cast<uint32_t>(bytes[3]) << 24);
++	return true;
++}
++
++static bool read_le64_at(int fd, off_t offset, uint64_t& value) {
++	unsigned char bytes[8];
++	if (pread(fd, bytes, sizeof(bytes), offset) != sizeof(bytes))
++		return false;
++	value = 0;
++	for (size_t i = 0; i < sizeof(bytes); ++i)
++		value |= static_cast<uint64_t>(bytes[i]) << (i * 8);
++	return true;
++}
++
++static bool f2fs_active_checkpoint_has_nat_bits(const string& block_device) {
++	static const off_t super_offset = 1024;
++	static const off_t checkpoint_flags_offset = 132;
++	static const uint32_t f2fs_magic = 0xF2F52010;
++	static const uint32_t cp_nat_bits_flag = 0x80;
++	int fd = open(block_device.c_str(), O_RDONLY | O_CLOEXEC);
++	if (fd < 0)
++		return false;
++
++	uint32_t magic, log_blocksize, log_blocks_per_segment, checkpoint_block;
++	bool valid = read_le32_at(fd, super_offset, magic) &&
++		read_le32_at(fd, super_offset + 16, log_blocksize) &&
++		read_le32_at(fd, super_offset + 20, log_blocks_per_segment) &&
++		read_le32_at(fd, super_offset + 76, checkpoint_block) &&
++		magic == f2fs_magic && log_blocksize == 12 &&
++		log_blocks_per_segment < 31 && checkpoint_block != 0;
++	if (!valid) {
++		close(fd);
++		return false;
++	}
++
++	off_t checkpoint_one = static_cast<off_t>(checkpoint_block) << log_blocksize;
++	uint64_t checkpoint_two_block = static_cast<uint64_t>(checkpoint_block) +
++		(1ULL << log_blocks_per_segment);
++	off_t checkpoint_two = static_cast<off_t>(checkpoint_two_block << log_blocksize);
++	uint64_t version_one, version_two;
++	uint32_t flags_one, flags_two;
++	valid = read_le64_at(fd, checkpoint_one, version_one) &&
++		read_le32_at(fd, checkpoint_one + checkpoint_flags_offset, flags_one) &&
++		read_le64_at(fd, checkpoint_two, version_two) &&
++		read_le32_at(fd, checkpoint_two + checkpoint_flags_offset, flags_two);
++	close(fd);
++	if (!valid)
++		return false;
++
++	uint32_t active_flags = version_two > version_one ? flags_two : flags_one;
++	LOGINFO("F2FS checkpoint probe: versions %llu/%llu, active flags 0x%08x.\n",
++		static_cast<unsigned long long>(version_one),
++		static_cast<unsigned long long>(version_two), active_flags);
++	return (active_flags & cp_nat_bits_flag) != 0;
++}
++#endif
++
+ struct flag_list {
+ 	const char *name;
+ 	unsigned long flag;
+@@ -650,6 +716,9 @@ void TWPartition::ExcludeAll(const string& path) {
+ void TWPartition::Setup_Data_Partition(bool Display_Error) {
+ 	if (Mount_Point != "/data")
+ 		return;
++#ifdef TW_FBE_DATA_MEDIA_INIT_BY_SYSTEM
++	bool fbe_layout_uninitialized = false;
++#endif
+ 
+ 	// Ensure /data is not mounted as tmpfs for qcom hardware decrypt
+ 	UnMount(false);
+@@ -658,6 +727,18 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
+ 	if (datamedia)
+ 		Setup_Data_Media();
+ 	Can_Be_Encrypted = true;
++#ifdef TW_F2FS_DISABLE_NAT_BITS
++	if (Fstab_File_System == "f2fs" &&
++		f2fs_active_checkpoint_has_nat_bits(Actual_Block_Device)) {
++		// This vendor kernel can spend minutes spinning while importing this
++		// table. Leave userdata unmounted so the UI can offer Format Data.
++		Is_FBE = true;
++		Is_Encrypted = true;
++		Is_Decrypted = false;
++		LOGERR("Skipping userdata mount: active F2FS checkpoint contains incompatible NAT-bits. Format Data with this recovery to rebuild it.\n");
++		return;
++	}
++#endif
+ 	char crypto_blkdev[255];
+ 	property_get("ro.crypto.fs_crypto_blkdev", crypto_blkdev, "error");
+ 	if (strcmp(crypto_blkdev, "error") != 0) {
+@@ -701,6 +782,20 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
+ 			Primary_Block_Device.c_str(), Mount_Point.c_str());
+ 		}
+ 	} else {
++#ifdef TW_FBE_DATA_MEDIA_INIT_BY_SYSTEM
++		char crypto_type[PROPERTY_VALUE_MAX];
++		property_get("ro.crypto.type", crypto_type, "");
++		fbe_layout_uninitialized = strcmp(crypto_type, "file") == 0 &&
++			!TWFunc::Path_Exists("/data/unencrypted/key/version");
++		if (fbe_layout_uninitialized) {
++			// A freshly formatted userdata volume has no FBE policies yet. Do not
++			// create a plaintext /data/media tree before Android vold initializes it.
++			Is_FBE = true;
++			Is_Encrypted = true;
++			Is_Decrypted = false;
++			LOGINFO("Fresh FBE userdata detected; leaving data/media initialization to Android vold.\n");
++		} else {
++#endif
+ 		int is_device_fbe;
+ 		DataManager::GetValue(TW_IS_FBE, is_device_fbe);
+ 		if (!Decrypt_FBE_DE() && is_device_fbe == 1) {
+@@ -717,11 +812,18 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
+ 				}
+ 			}
+ 		}
++#ifdef TW_FBE_DATA_MEDIA_INIT_BY_SYSTEM
++		}
++#endif
+ 	}
+ 	if (datamedia && (!Is_Encrypted || (Is_Encrypted && Is_Decrypted))) {
+ 		Setup_Data_Media();
+ 		Recreate_Media_Folder();
+ 	}
++#ifdef TW_FBE_DATA_MEDIA_INIT_BY_SYSTEM
++	if (fbe_layout_uninitialized)
++		UnMount(false);
++#endif
+ #else
+ 	if (datamedia) {
+ 		Setup_Data_Media();
+@@ -1186,7 +1288,13 @@ void TWPartition::Setup_Data_Media() {
+ 			Make_Dir("/sdcard", false);
+ 			Symlink_Mount_Point = "/sdcard";
+ 		}
+-		if (Mount(false) && TWFunc::Path_Exists(Mount_Point + "/media/0")) {
++		bool probe_media_path = true;
++#ifdef TW_F2FS_DISABLE_NAT_BITS
++		// Setup_Data_Partition performs the real mount after checking the raw
++		// checkpoint. Avoid mounting an incompatible volume on the splash page.
++		probe_media_path = false;
++#endif
++		if (probe_media_path && Mount(false) && TWFunc::Path_Exists(Mount_Point + "/media/0")) {
+ 			Storage_Path = Mount_Point + "/media/0";
+ 			Symlink_Path = Storage_Path;
+ 			DataManager::SetValue(TW_INTERNAL_PATH, Mount_Point + "/media/0");
+@@ -1770,7 +1878,15 @@ bool TWPartition::Wipe(string New_File_System) {
+ 			}
+ 		}
+ 
+-		if (Is_Storage && Mount(false) && !Is_FBE)
++		bool skip_data_post_format_mount = false;
++#ifdef TW_SKIP_DATA_POST_FORMAT_MOUNT
++		skip_data_post_format_mount = (Mount_Point == "/data");
++#endif
++		// Full userdata formats on affected vendor kernels must return before any
++		// blkid probe or mount. Android will create the FBE media layout on boot.
++		if (skip_data_post_format_mount)
++			LOGINFO("Skipping post-format mount of freshly created userdata.\n");
++		else if (Is_Storage && !Is_FBE && Mount(false))
+ 			PartitionManager.Add_MTP_Storage(MTP_Storage_ID);
+ 	}
+ 
+@@ -2075,13 +2191,26 @@ bool TWPartition::Wipe_Encryption() {
+ 	Decrypted_Block_Device = "";
+ 	Is_Decrypted = false;
+ 	Is_Encrypted = false;
++#ifdef TW_SKIP_DATA_POST_FORMAT_MOUNT
++	if (Mount_Point == "/data") {
++		LOGINFO("Format Data: disabling MTP before recreating userdata.\n");
++		PartitionManager.Disable_MTP();
++	}
++#endif
+ 	if (Wipe(Fstab_File_System)) {
+ 		Has_Data_Media = Save_Data_Media;
+ 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
+ #ifndef TW_OEM_BUILD
+ 		gui_msg("format_data_msg=You may need to reboot recovery to be able to use /data again.");
+ #endif
+-		if (Is_FBE) {
++		bool leave_data_unmounted = false;
++#ifdef TW_SKIP_DATA_POST_FORMAT_MOUNT
++		leave_data_unmounted = (Mount_Point == "/data");
++#endif
++		if (leave_data_unmounted) {
++			LOGINFO("Format Data: leaving userdata unmounted for Android FBE initialization.\n");
++			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=TWRP will not recreate /data/media on an FBE device. Please reboot into your rom to create /data/media."));
++		} else if (Is_FBE) {
+ 			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=TWRP will not recreate /data/media on an FBE device. Please reboot into your rom to create /data/media."));
+ 		} else {
+ 			if (Has_Data_Media && !Symlink_Mount_Point.empty()) {
+@@ -2436,9 +2565,17 @@ bool TWPartition::Wipe_F2FS() {
+ 
+ 			char dev_sz_str[48];
+ 			sprintf(dev_sz_str, "%llu", (dev_sz / 4096));
+-			command = "mkfs.f2fs -d1 -f -O encrypt -O quota -O verity -w 4096 " + Actual_Block_Device + " " + dev_sz_str;
++			command = "mkfs.f2fs -d1 -f";
++#ifdef TW_F2FS_DISABLE_NAT_BITS
++			command += " -N";
++#endif
++			command += " -O encrypt -O quota -O verity -w 4096 " + Actual_Block_Device + " " + dev_sz_str;
+ 			if (TWFunc::Path_Exists("/sbin/sload.f2fs")) {
+-				command += " && sload.f2fs -t /data " + Actual_Block_Device;
++				command += " && sload.f2fs";
++#ifdef TW_F2FS_DISABLE_NAT_BITS
++				command += " -N";
++#endif
++				command += " -t /data " + Actual_Block_Device;
+ 			}
+ 		} else {
+ 			LOGINFO("Using older mkfs.f2fs\n");
+diff --git a/partitionmanager.cpp b/partitionmanager.cpp
+index e58e8ff3f18aef0e18a8eb5cdb040080c77d882c..eff10341cbd2e57b879318e4decd1faaa91a47f0 100755
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1399,15 +1399,16 @@ int TWPartitionManager::Factory_Reset(void) {
+ 
+ 	for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
+ 		if ((*iter)->Wipe_During_Factory_Reset && (*iter)->Is_Present) {
+-#ifdef TW_OEM_BUILD
++#if defined(TW_OEM_BUILD) || defined(TW_FACTORY_RESET_FORMAT_DATA)
+ 			if ((*iter)->Mount_Point == "/data") {
++				gui_msg("factory_reset_format_data=Formatting Data including internal storage...");
+ 				if (!(*iter)->Wipe_Encryption())
+ 					ret = false;
+ 			} else {
+ #endif
+ 				if (!(*iter)->Wipe())
+ 					ret = false;
+-#ifdef TW_OEM_BUILD
++#if defined(TW_OEM_BUILD) || defined(TW_FACTORY_RESET_FORMAT_DATA)
+ 			}
+ #endif
+ 		} else if ((*iter)->Has_Android_Secure) {
+@@ -2575,10 +2576,11 @@ bool TWPartitionManager::Disable_MTP(void) {
+ 	if (mtppid) {
+ 		LOGINFO("Disabling MTP\n");
+ 		int status;
+-		kill(mtppid, SIGKILL);
++		pid_t old_mtppid = mtppid;
++		kill(old_mtppid, SIGKILL);
+ 		mtppid = 0;
+ 		// We don't care about the exit value, but this prevents a zombie process
+-		waitpid(mtppid, &status, 0);
++		waitpid(old_mtppid, &status, 0);
+ 		close(mtp_write_fd);
+ 		mtp_write_fd = -1;
+ 	}
+diff --git a/prebuilt/Android.mk b/prebuilt/Android.mk
+index 17636ae654a02d02800e7d412713dcf30a423ee5..515331a9c17f5bba9c0c2fc4a33d474ad625c94c 100644
+--- a/prebuilt/Android.mk
++++ b/prebuilt/Android.mk
+@@ -361,6 +361,9 @@ ifeq ($(TWRP_INCLUDE_LOGCAT), true)
+         RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libcap.so
+     endif
+ endif
++ifeq ($(TWRP_INCLUDE_STRACE), true)
++    RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/strace
++endif
+ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -gt 25; echo $$?),0)
+     RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libpcre2.so
+     RELINK_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libvndksupport.so

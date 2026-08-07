@@ -1,10 +1,93 @@
+# EMUI9 (Android 9) exposes only keymaster@3.0; TWRP decrypt now uses the
+# 3.0 keymaster path, so vendor HAL services must run from recovery.
+# teecd validates the full client executable path, so the original services
+# must run directly from /vendor/bin/hw. All preparation is synchronous:
+# `start fixlinks` used to return immediately, allowing TWRP's first
+# (non-retrying) keymaster lookup to run before the TEE/HAL stack existed.
 on fs
-    start fixlinks
+    # /system (ramdisk) is a symlink to /system_root/system whose bin/
+    # loops back, breaking execve of /system/bin/linker64. fixlinks.sh
+    # replaces /system with a minimal tree (linker64 + ld.config + VINTF
+    # files) and mounts TEE secure storage.
+    exec_start fixlinks
+    # FBE key installation searches for an "e4crypt" keyring inherited from
+    # init. Recovery's reduced init.rc never created it, unlike Android init.
+    install_keyring
+    chmod 0666 /dev/tc_ns_client
+    start logd
+    start hwservicemanager
+    start teeauth
+    start teecd
+    exec_start wait-for-teecd
+    start vendor.keymaster-3-0-tw
+    start vendor.gatekeeper-1-0-tw
+    exec_start wait-for-keymaster
+
+on boot
+
+# TEE CA authentication daemon (creates /dev/socket/tui_daemon +
+# tee-multi-user; libteec_vendor.so connects to it in
+# TEEC_InitializeContext). Binary + deps baked into /sbin.
+service teeauth /sbin/tee_auth_daemon
+    class core
+    user root
+    group root system readproc
+    socket tui_daemon stream 660 root system
+    socket tee-multi-user stream 660 root system
+    setenv LD_LIBRARY_PATH /sbin:/vendor/lib64
+    seclabel u:r:system_teecd:s0
+
+service hwservicemanager /sbin/hwservicemanager
+    class core
+    user root
+    seclabel u:r:recovery:s0
+
+# The full vendor executable path is part of teecd client authentication.
+# Copies under /sbin connect successfully but teecd closes them without
+# passing /dev/tc_ns_client, causing TEEC_InitializeContext to fail.
+service vendor.keymaster-3-0-tw /vendor/bin/hw/android.hardware.keymaster@3.0-service
+    class core
+    user system
+    group system drmrpc
+    seclabel u:r:hal_keymaster_default:s0
+    setenv LD_LIBRARY_PATH /sbin:/vendor/lib64
+
+service vendor.gatekeeper-1-0-tw /vendor/bin/hw/android.hardware.gatekeeper@1.0-service
+    class core
+    user system
+    group system drmrpc
+    seclabel u:r:hal_gatekeeper_default:s0
+    setenv LD_LIBRARY_PATH /sbin:/vendor/lib64
 
 service fixlinks /sbin/fixlinks.sh
     oneshot
     disabled
     seclabel u:r:recovery:s0
+
+# These waits are synchronous init services.  They keep the late-init action
+# queue (and therefore TWRP's one-shot FBE probe) behind TEE/HAL bring-up.
+service wait-for-teecd /sbin/wait-for-service.sh teecd tc_ns_socket 8
+    oneshot
+    disabled
+    user root
+    group root
+    seclabel u:r:recovery:s0
+
+service wait-for-keymaster /sbin/wait-for-service.sh vendor.keymaster-3-0-tw - 4
+    oneshot
+    disabled
+    user root
+    group root
+    seclabel u:r:recovery:s0
+
+# Override the vendor init.tee.rc teecd and start it only after fixlinks has
+# mounted secure storage.  ptrace wrapping is diagnostic-only: leaving it in
+# the production service changed scheduling and could freeze the tracee.
+service teecd /vendor/bin/teecd
+    disabled
+    user root
+    group root system readproc
+    seclabel u:r:tee:s0
 
 service oeminfo_nvm /sbin/true
     disabled

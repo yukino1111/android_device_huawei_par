@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <!-- Projects omitted by some repo versions when using the minimal TWRP 9.0
+       manifest. AOSP android-9.0.0_r47 is sufficient for recovery builds. -->
+  <project path="external/skia" name="platform/external/skia" remote="aosp" revision="refs/tags/android-9.0.0_r47" clone-depth="1" />
+  <project path="frameworks/minikin" name="platform/frameworks/minikin" remote="aosp" revision="refs/tags/android-9.0.0_r47" clone-depth="1" />
+  <project path="external/pdfium" name="platform/external/pdfium" remote="aosp" revision="refs/tags/android-9.0.0_r47" clone-depth="1" />
+  <project path="external/harfbuzz_ng" name="platform/external/harfbuzz_ng" remote="aosp" revision="refs/tags/android-9.0.0_r47" clone-depth="1" />
+  <project path="external/sqlite" name="platform/external/sqlite" remote="aosp" revision="refs/tags/android-9.0.0_r47" clone-depth="1" />
+</manifest>

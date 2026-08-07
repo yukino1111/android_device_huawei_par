@@ -1,0 +1,79 @@
+# PAR (Huawei nova 3 / Kirin 970 / EMUI9) recovery decrypt support.
+#
+# The AOSP recovery sepolicy does not contain the EMUI9 vendor types
+# (tee/teecd, hal_keymaster_default, hal_gatekeeper_default, teecd_device),
+# so vendor services (teecd, keymaster@3.0, gatekeeper@1.0) cannot even
+# exec from /vendor: the file labels resolve to types absent from the
+# loaded policy, which fails the exec regardless of domain permissiveness.
+#
+# We re-declare the minimal vendor types needed for TEE-based /data
+# decryption (fscrypt v1) and mark every relevant domain permissive.
+# The device kernel cannot switch to global permissive (CONFIG_SECURITY_
+# SELINUX_DEVELOP is off; setenforce 0 returns EINVAL), so per-domain
+# permissive statements inside the recovery policy are the only way to
+# let these services run while the kernel stays globally enforcing.
+#
+# Type names follow the non-versioned (Android 9) naming used by the
+# on-device vendor_file_contexts; the versioned CIL names (_28_0 suffix)
+# only exist in the compiled vendor_sepolicy.cil, not in the ramdisk
+# file contexts.
+
+# teecd -> /vendor/bin/teecd, context u:object_r:tee_exec:s0
+# (type tee already declared by AOSP vendor policy; make it permissive)
+permissive tee;
+
+# keymaster@3.0 -> /vendor/bin/hw/android.hardware.keymaster@3.0-service
+# (type hal_keymaster_default + exec declared by AOSP vendor policy)
+typeattribute hal_keymaster_default mlstrustedsubject;
+permissive hal_keymaster_default;
+
+# gatekeeper@1.0 -> /vendor/bin/hw/android.hardware.gatekeeper@1.0-service
+typeattribute hal_gatekeeper_default mlstrustedsubject;
+permissive hal_gatekeeper_default;
+
+# GSI init scripts (loaded from /system_root/system/init+etc/init) define
+# "service servicemanager /sbin/servicemanager"; init transitions into the
+# servicemanager domain, which lacks entrypoint on the rootfs-labeled file.
+permissive servicemanager;
+permissive vndservicemanager;
+permissive gatekeeperd;
+
+# Recovery places logd in /sbin with a rootfs label; the stock logd domain
+# otherwise rejects it as an entrypoint and all HAL diagnostics are lost.
+permissive logd;
+
+# /dev/tc_ns_client (TEE driver client node)
+type teecd_device, dev_type, mlstrustedobject;
+type teecd_blkdev, dev_type, mlstrustedobject;
+
+# TEE data files under /data (sec_storage)
+type teecd_data_file_system, file_type, data_file_type;
+type teecd_data_file_vendor, file_type, data_file_type;
+# secure_storage partition mount context (init.tee.rc)
+type teecd_data_file, file_type, data_file_type;
+
+# Let every domain open the TEE client node (kernel-side access checks).
+allow domain teecd_device:chr_file { ioctl read write open getattr lock append map };
+
+# hisee/rpmb kernel threads need /dev/block search+open for TEE secure
+# storage init; the kernel domain is enforcing (permissive=0 denials in
+# dmesg), which breaks TEEC_InitializeContext in the vendor HALs.
+permissive kernel;
+
+# tee_auth_daemon (TEE CA authentication, started by our init.rc)
+type system_teecd, domain, mlstrustedsubject;
+type system_teecd_exec, exec_type, file_type;
+permissive system_teecd;
+
+# init starts the vendor services; make it permissive so its exec checks
+# (execute/entrypoint/transition) can never block them. The device kernel
+# is globally enforcing, so per-domain permissive is the only escape hatch.
+permissive init;
+
+# init must be able to exec the vendor services (entrypoint on the exec
+# types) so they can start from recovery's init.rc.
+allow init tee_exec:file { execute map open read getattr entrypoint };
+allow init hal_keymaster_default_exec:file { execute map open read getattr entrypoint };
+allow init hal_gatekeeper_default_exec:file { execute map open read getattr entrypoint };
+allow init { tee hal_keymaster_default hal_gatekeeper_default }:process transition;
+allow init { tee hal_keymaster_default hal_gatekeeper_default }:process { siginh rlimitinh };
