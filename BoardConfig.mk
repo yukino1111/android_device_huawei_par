@@ -56,5 +56,5 @@ TW_DEFAULT_BRIGHTNESS := "2048"
 TW_CUSTOM_BATTERY_PATH := /sys/class/power_supply/Battery
 # Device crashes if /sbin/modprobe is present so this is needed:
 BOARD_CUSTOM_BOOTIMG_MK := device/huawei/par/custombootimg.mk
-# MTP will not work until we update it to support ffs
-TW_EXCLUDE_MTP := true
+# fscrypt v1 (FBE) decrypt + keymaster HAL (kernel has /dev/tc_ns_client)
+TW_INCLUDE_CRYPTO := true
