@@ -23,10 +23,11 @@ TARGET_2ND_CPU_VARIANT := generic
 BOARD_KERNEL_CMDLINE :=
 
 # Header values copied from stock PAR recovery_ramdisk (EMUI 9.0.0.186):
-# kernel_addr 0x00100080, ramdisk_addr 0x00110000, tags_addr 0x00100001
+# kernel_addr 0x00100080, ramdisk_addr 0x11000000, tags_addr 0x10f00000
+# (hisi header: page_size at 0x24, cmdline at 0x40)
 BOARD_KERNEL_BASE := 0x00100000
 BOARD_KERNEL_PAGESIZE := 2048
-BOARD_MKBOOTIMG_ARGS := --kernel_offset 0x80 --ramdisk_offset 0x10000 --tags_offset 0x1
+BOARD_MKBOOTIMG_ARGS := --kernel_offset 0x80 --ramdisk_offset 0x10F00000 --tags_offset 0x10E00000
 
 # phony empty kernel to satisfy build system, but this device does not
 # include a kernel in the recovery image -- flash to recovery_ramdisk
