@@ -20,22 +20,21 @@ TARGET_2ND_CPU_ABI := armeabi-v7a
 TARGET_2ND_CPU_ABI2 := armeabi
 TARGET_2ND_CPU_VARIANT := generic
 
-BOARD_KERNEL_CMDLINE := 
+BOARD_KERNEL_CMDLINE :=
 
-BOARD_KERNEL_BASE := 0x10000000
+# Header values copied from stock PAR recovery_ramdisk (EMUI 9.0.0.186):
+# kernel_addr 0x00100080, ramdisk_addr 0x00110000, tags_addr 0x00100001
+BOARD_KERNEL_BASE := 0x00100000
 BOARD_KERNEL_PAGESIZE := 2048
-BOARD_MKBOOTIMG_ARGS := --kernel_offset 0x8000 --ramdisk_offset 0x01000000 --tags_offset 0x0100
+BOARD_MKBOOTIMG_ARGS := --kernel_offset 0x80 --ramdisk_offset 0x10000 --tags_offset 0x1
 
 # phony empty kernel to satisfy build system, but this device does not
 # include a kernel in the recovery image -- flash to recovery_ramdisk
-TARGET_PREBUILT_KERNEL := device/huawei/charlotte/dummykernel
-# else uncomment below to build from sauce
-# TARGET_KERNEL_SOURCE := kernel/huawei/charlotte
-# TARGET_KERNEL_CONFIG := charlotte_defconfig
+TARGET_PREBUILT_KERNEL := device/huawei/par/dummykernel
 
-BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
+BOARD_BOOTIMAGE_PARTITION_SIZE := 25165824
 BOARD_RECOVERYIMAGE_PARTITION_SIZE := 33554432
-BOARD_SYSTEMIMAGE_PARTITION_SIZE := 5905580032
+BOARD_SYSTEMIMAGE_PARTITION_SIZE := 4487905280
 BOARD_USERDATAIMAGE_PARTITION_SIZE := 119663493120
 BOARD_BUILD_SYSTEM_ROOT_IMAGE := true
 BOARD_FLASH_BLOCK_SIZE := 131072 # (BOARD_KERNEL_PAGESIZE * 64)
@@ -56,6 +55,6 @@ TW_USE_TOOLBOX := true
 TW_DEFAULT_BRIGHTNESS := "2048"
 TW_CUSTOM_BATTERY_PATH := /sys/class/power_supply/Battery
 # Device crashes if /sbin/modprobe is present so this is needed:
-BOARD_CUSTOM_BOOTIMG_MK := device/huawei/charlotte/custombootimg.mk
+BOARD_CUSTOM_BOOTIMG_MK := device/huawei/par/custombootimg.mk
 # MTP will not work until we update it to support ffs
 TW_EXCLUDE_MTP := true

@@ -1,5 +1,6 @@
+# par (nova 3) 为拆分式启动布局，无独立 ramdisk/boot 分区（system-as-root），
+# 故相对 charlotte 删除 /ramdisk 项。
 /kernel            emmc      /dev/block/bootdevice/by-name/kernel            flags=display="Kernel";backup=1
-/ramdisk           emmc      /dev/block/bootdevice/by-name/ramdisk           flags=display="Boot Ramdisk";backup=1
 /recovery_ramdisk  emmc      /dev/block/bootdevice/by-name/recovery_ramdisk  flags=display="Recovery Ramdisk";backup=1
 /cache             ext4      /dev/block/bootdevice/by-name/cache
 /cust              ext4      /dev/block/bootdevice/by-name/cust              flags=display="Cust";backup=1
@@ -12,6 +13,6 @@
 /vendor_image      emmc      /dev/block/bootdevice/by-name/vendor
 
 #/usbotg            auto     /dev/block/sda1         /dev/block/sda          flags=display="USB OTG";storage;removable;backup=0
-#/devices/ff200000.hisi_usb/ff100000.dwc3/*              auto                auto      defaults                                      flags=display="USB OTG";storage;removable;backup=0
-#/devices/platform/ff200000.hisi_usb/ff100000.dwc3/*     auto                auto      defaults                                      flags=display="USB OTG";storage;removable;backup=0
+#/devices/ff200000.hisi_usb/ff100000.dwc3/*              auto      auto                defaults                                      flags=display="USB OTG";storage;removable;backup=0
+#/devices/platform/ff200000.hisi_usb/ff100000.dwc3/*     auto      auto                defaults                                      flags=display="USB OTG";storage;removable;backup=0
 #/devices/platform/e7f00000.hifi_usb/*     auto                auto      defaults                                      flags=display="USB OTG";storage;removable;backup=0

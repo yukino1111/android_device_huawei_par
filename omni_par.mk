@@ -14,12 +14,6 @@
 # limitations under the License.
 #
 
-# Sample: This is where we'd set a backup provider if we had one
-# $(call inherit-product, device/sample/products/backup_overlay.mk)
-
-# Get the prebuilt list of APNs
-$(call inherit-product, vendor/omni/config/gsm.mk)
-
 # Inherit from the common Open Source product configuration
 $(call inherit-product, $(SRC_TARGET_DIR)/product/aosp_base_telephony.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit.mk)
@@ -32,15 +26,10 @@ PRODUCT_PACKAGES += \
     charger
 
 PRODUCT_COPY_FILES += \
-    device/huawei/charlotte/dummykernel:kernel
+    device/huawei/par/dummykernel:kernel
 
-PRODUCT_NAME := omni_charlotte
-PRODUCT_DEVICE := charlotte
+PRODUCT_NAME := omni_par
+PRODUCT_DEVICE := par
 PRODUCT_BRAND := Huawei
-PRODUCT_MODEL := P20 Pro
+PRODUCT_MODEL := Nova 3
 PRODUCT_MANUFACTURER := Huawei
-
-# Kernel inline build
-#TARGET_KERNEL_CONFIG := charlotte_defconfig
-#TARGET_VARIANT_CONFIG := charlotte_defconfig
-#TARGET_SELINUX_CONFIG := charlotte_defconfig
