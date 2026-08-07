@@ -9,6 +9,7 @@ $(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTIMG) \
 	@echo ----- Making recovery image ------
 	$(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) --output $@
 	printf '\x34\x01\x00\x12' | dd of=$@ bs=1 seek=44 conv=notrunc
+	printf 'buildvariant=user\x00' | dd of=$@ bs=1 seek=64 conv=notrunc
 	@echo ----- Made recovery image -------- $@
 	$(hide) $(call assert-max-image-size,$@,$(BOARD_RECOVERYIMAGE_PARTITION_SIZE),raw)
 
