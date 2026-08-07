@@ -20,7 +20,7 @@ TARGET_2ND_CPU_ABI := armeabi-v7a
 TARGET_2ND_CPU_ABI2 := armeabi
 TARGET_2ND_CPU_VARIANT := generic
 
-BOARD_KERNEL_CMDLINE :=
+BOARD_KERNEL_CMDLINE := buildvariant=user
 
 # Header values match stock PAR recovery_ramdisk (EMUI 9.0.0.186):
 # base 0x10000000 + mkbootimg defaults -> kaddr 0x10008000, raddr 0x11000000
