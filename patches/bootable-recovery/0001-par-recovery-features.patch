@@ -1,3 +1,6 @@
+# Provenance: TeamWin recovery base; AOSP Keymaster helper code attributed to
+# AOSP and Janis Danisevskis; PAR integration maintained by yukino1111.
+# See ../../ATTRIBUTION.md. Upstream portions are not authored by yukino1111.
 diff --git a/Android.mk b/Android.mk
 index aedb3f9a93052ab95367edf489ee97e7e1ce0377..eac8f8fb554506cd548a2990db195afcaab7dd6d 100755
 --- a/Android.mk

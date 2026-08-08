@@ -1,3 +1,5 @@
+# Provenance: PAR-specific Linux 4.9 NAT-bits compatibility change by
+# yukino1111 against upstream F2FS tools. Upstream copyright and license apply.
 diff --git a/fsck/main.c b/fsck/main.c
 index f35d01db0fa4ea3a5ca207f853559039df90372a..7810171a5f95c6091e0fc09cb0029b923c1c8299 100644
 --- a/fsck/main.c

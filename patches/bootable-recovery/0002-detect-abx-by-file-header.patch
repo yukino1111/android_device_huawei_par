@@ -1,3 +1,5 @@
+# Provenance: PAR-specific ABX detection fix by yukino1111 against TeamWin
+# recovery. Upstream file copyright and license apply.
 diff --git a/partitionmanager.cpp b/partitionmanager.cpp
 index eff1034..22bc0d0 100755
 --- a/partitionmanager.cpp

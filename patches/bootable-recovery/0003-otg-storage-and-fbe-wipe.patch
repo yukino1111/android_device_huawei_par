@@ -1,3 +1,5 @@
+# Provenance: PAR-specific OTG and FBE wipe fixes by yukino1111 against TeamWin
+# recovery. Upstream file copyright and license apply.
 diff --git a/gui/theme/common/languages/en.xml b/gui/theme/common/languages/en.xml
 index 52b69da..0f1ab61 100755
 --- a/gui/theme/common/languages/en.xml
