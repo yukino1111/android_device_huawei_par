@@ -1,0 +1,127 @@
+diff --git a/gui/theme/common/languages/en.xml b/gui/theme/common/languages/en.xml
+index 52b69da..0f1ab61 100755
+--- a/gui/theme/common/languages/en.xml
++++ b/gui/theme/common/languages/en.xml
+@@ -144,6 +144,7 @@
+ 		<string name="factory_reset4">the only wipe that you need.</string>
+ 		<string name="factory_reset5">(not including users/lockscreen)</string>
+ 		<string name="factory_resetting">Factory Reset...</string>
++		<string name="factory_reset_format_data">Formatting Data including internal storage...</string>
+ 		<string name="advanced_wipe_hdr">Advanced Wipe</string>
+ 		<string name="advanced_wipe_btn">Advanced Wipe</string>
+ 		<string name="wipe_enc_confirm">Wipe Encryption from Data?</string>
+diff --git a/gui/theme/extra-languages/languages/zh_CN.xml b/gui/theme/extra-languages/languages/zh_CN.xml
+index 77617a3..b6f4490 100644
+--- a/gui/theme/extra-languages/languages/zh_CN.xml
++++ b/gui/theme/extra-languages/languages/zh_CN.xml
+@@ -144,6 +144,7 @@
+ 		<string name="factory_reset4">执行此操作即可。</string>
+ 		<string name="factory_reset5">（不包括用户/锁屏）</string>
+ 		<string name="factory_resetting">正在恢复出厂设置…</string>
++		<string name="factory_reset_format_data">正在格式化 Data（包括内部存储）…</string>
+ 		<string name="advanced_wipe_hdr">高级清除选项</string>
+ 		<string name="advanced_wipe_btn">高级清除</string>
+ 		<string name="wipe_enc_confirm">是否清除 Data 分区加密？</string>
+diff --git a/partition.cpp b/partition.cpp
+index 5ecb131..fdd01d2 100755
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -3186,6 +3186,7 @@ bool TWPartition::Update_Size(bool Display_Error) {
+ 
+ bool TWPartition::Find_Wildcard_Block_Devices(const string& Device) {
+ 	int mount_point_index = 0; // we will need to create separate mount points for each partition found and we use this index to name each one
++	bool found_matching_device = false;
+ 	string Path = TWFunc::Get_Path(Device);
+ 	string Dev = TWFunc::Get_Filename(Device);
+ 	size_t wildcard_index = Dev.find("*");
+@@ -3202,13 +3203,17 @@ bool TWPartition::Find_Wildcard_Block_Devices(const string& Device) {
+ 		if (de->d_type != DT_BLK || strlen(de->d_name) <= wildcard_index || strncmp(de->d_name, Dev.c_str(), wildcard_index) != 0)
+ 			continue;
+ 
+-		string item = Path + "/";
++		found_matching_device = true;
++		mount_point_index++;
++		string item = Path;
++		if (!item.empty() && item[item.size() - 1] != '/')
++			item += "/";
+ 		item.append(de->d_name);
+ 		if (PartitionManager.Find_Partition_By_Block_Device(item))
+ 			continue;
+ 		TWPartition *part = new TWPartition;
+ 		char buffer[MAX_FSTAB_LINE_LENGTH];
+-		sprintf(buffer, "%s %s-%i auto defaults defaults", item.c_str(), Mount_Point.c_str(), ++mount_point_index);
++		sprintf(buffer, "%s %s-%i auto defaults defaults", item.c_str(), Mount_Point.c_str(), mount_point_index);
+ 		part->Process_Fstab_Line(buffer, false, NULL, false);
+ 		char display[MAX_FSTAB_LINE_LENGTH];
+ 		sprintf(display, "%s %i", Storage_Name.c_str(), mount_point_index);
+@@ -3230,7 +3235,10 @@ bool TWPartition::Find_Wildcard_Block_Devices(const string& Device) {
+ 		PartitionManager.Add_Partition(part);
+ 	}
+ 	closedir(d);
+-	return (mount_point_index > 0);
++	// Return true even when every matching child was registered by an earlier
++	// scan. Otherwise the wildcard parent falls back to the whole disk and is
++	// exposed as a second, zero-sized storage entry beside its real partition.
++	return found_matching_device;
+ }
+ 
+ void TWPartition::Find_Actual_Block_Device(void) {
+diff --git a/partitionmanager.cpp b/partitionmanager.cpp
+index 22bc0d0..b3b13d2 100755
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1527,6 +1527,7 @@ int TWPartitionManager::Format_Data(void) {
+ 
+ int TWPartitionManager::Wipe_Media_From_Data(void) {
+ 	TWPartition* dat = Find_Partition_By_Path("/data");
++	const string media_path = "/data/media";
+ 
+ 	if (dat != NULL) {
+ 		if (!dat->Has_Data_Media) {
+@@ -1538,10 +1539,20 @@ int TWPartitionManager::Wipe_Media_From_Data(void) {
+ 
+ 		gui_msg("wiping_datamedia=Wiping internal storage -- /data/media...");
+ 		Remove_MTP_Storage(dat->MTP_Storage_ID);
+-		TWFunc::removeDir("/data/media", false);
++		bool wipe_succeeded = true;
++		if (TWFunc::Path_Exists(media_path)) {
++			if (TWFunc::removeDir(media_path, false) != 0)
++				wipe_succeeded = false;
++		} else {
++			LOGINFO("Internal storage path '%s' is already absent.\n", media_path.c_str());
++		}
+ 		dat->Recreate_Media_Folder();
+-		Add_MTP_Storage(dat->MTP_Storage_ID);
+-		return true;
++		if (TWFunc::Path_Exists(dat->Storage_Path)) {
++			Add_MTP_Storage(dat->MTP_Storage_ID);
++		} else {
++			LOGINFO("Skipping MTP re-add because storage path '%s' does not exist; Android will initialize FBE media storage.\n", dat->Storage_Path.c_str());
++		}
++		return wipe_succeeded;
+ 	} else {
+ 		gui_msg(Msg(msg::kError, "unable_to_locate=Unable to locate {1}.")("/data"));
+ 		return false;
+@@ -2306,7 +2317,9 @@ void TWPartitionManager::Get_Partition_List(string ListType, std::vector<Partiti
+ 		char free_space[255];
+ 		string Current_Storage = DataManager::GetCurrentStoragePath();
+ 		for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
+-			if ((*iter)->Is_Storage) {
++			// Dynamic sysfs fstab entries are storage containers, not usable
++			// volumes. Only expose the present whole disk or its present child.
++			if ((*iter)->Is_Storage && (*iter)->Is_Present) {
+ 				struct PartitionList part;
+ 				sprintf(free_space, "%llu", (*iter)->Free / 1024 / 1024);
+ 				part.Display_Name = (*iter)->Storage_Name + " (";
+@@ -2385,7 +2398,10 @@ void TWPartitionManager::Get_Partition_List(string ListType, std::vector<Partiti
+ 		dalvik.selected = 0;
+ 		Partition_List->push_back(dalvik);
+ 		for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
+-			if ((*iter)->Wipe_Available_in_GUI && !(*iter)->Is_SubPartition) {
++			bool dynamic_removable_volume = (*iter)->Is_SubPartition &&
++				(*iter)->Is_Storage && (*iter)->Removable;
++			if ((*iter)->Wipe_Available_in_GUI && (*iter)->Is_Present &&
++				(!(*iter)->Is_SubPartition || dynamic_removable_volume)) {
+ 				struct PartitionList part;
+ 				part.Display_Name = (*iter)->Display_Name;
+ 				part.Mount_Point = (*iter)->Mount_Point;

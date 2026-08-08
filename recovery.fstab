@@ -13,7 +13,6 @@
 # Safety boundary: cust, oeminfo, 3rdmodem, modemnvm*, persist and other
 # device-identity/baseband partitions are intentionally hidden from TWRP.
 
-#/usbotg            auto     /dev/block/sda1         /dev/block/sda          flags=display="USB OTG";storage;removable;backup=0
-#/devices/ff200000.hisi_usb/ff100000.dwc3/*              auto      auto                defaults                                      flags=display="USB OTG";storage;removable;backup=0
-#/devices/platform/ff200000.hisi_usb/ff100000.dwc3/*     auto      auto                defaults                                      flags=display="USB OTG";storage;removable;backup=0
-#/devices/platform/e7f00000.hifi_usb/*     auto                auto      defaults                                      flags=display="USB OTG";storage;removable;backup=0
+# PAR OTG block uevents use this DWC3 sysfs prefix. Keep the vold-style auto
+# entry so TWRP handles both whole-disk filesystems and partitioned USB media.
+/devices/platform/ff200000.hisi_usb/ff100000.dwc3/*  auto  auto  defaults  voldmanaged=usbotg:auto

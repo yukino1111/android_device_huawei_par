@@ -47,7 +47,7 @@ BOARD_HAS_NO_SELECT_BUTTON := true
 TW_THEME := portrait_hdpi
 TW_EXTRA_LANGUAGES := true
 TW_DEFAULT_LANGUAGE := zh_CN
-TW_DEVICE_VERSION := PAR
+TW_DEVICE_VERSION := PAR-v1.0
 # Match the stock Huawei recovery reset semantics: formatting Data also erases
 # emulated internal storage (/data/media), instead of TWRP's usual media-preserving wipe.
 TW_FACTORY_RESET_FORMAT_DATA := true
