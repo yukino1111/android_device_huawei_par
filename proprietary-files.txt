@@ -1,4 +1,4 @@
-# Huawei nova 3 (PAR), EMUI 9.0.0.186
+# Huawei nova 3 (PAR), EMUI 9.0.0.187
 #
 # This repository does not distribute these files. Extract them from firmware
 # you obtained yourself, then copy each source to the destination after the
