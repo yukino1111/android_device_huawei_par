@@ -1639,6 +1639,32 @@ index e10a60aaa60709368286f51513806710bd1fd827..77617a305e5d0bf017fdce07402b8d2b
  		<string name="factory_reset3">在大多数情况下，您只需要</string>
  		<string name="factory_reset4">执行此操作即可。</string>
  		<string name="factory_reset5">（不包括用户/锁屏）</string>
+diff --git a/minuitwrp/events.cpp b/minuitwrp/events.cpp
+index 7e5bc42e8a2b904ce054ed862c25eabe59934c62..13c86170015b85407d7bec9cd048a9423752b7cb 100755
+--- a/minuitwrp/events.cpp
++++ b/minuitwrp/events.cpp
+@@ -45,6 +45,7 @@
+ 
+ #define LEDS_HAPTICS_DURATION_FILE	"/sys/class/leds/vibrator/duration"
+ #define LEDS_HAPTICS_ACTIVATE_FILE	"/sys/class/leds/vibrator/activate"
++#define LEDS_HAPTICS_STATE_FILE		"/sys/class/leds/vibrator/state"
+ 
+ #ifndef SYN_REPORT
+ #define SYN_REPORT          0x00
+@@ -142,6 +143,13 @@ int vibrate(int timeout_ms)
+     }
+ #else
+     if (std::ifstream(LEDS_HAPTICS_ACTIVATE_FILE).good()) {
++        // The transient LED trigger defaults to state 0 and restores the
++        // inverse state when its timer expires. Select the active state
++        // explicitly, otherwise some Huawei drivers turn the motor on only
++        // after the requested duration and leave it running indefinitely.
++        write_to_file(LEDS_HAPTICS_ACTIVATE_FILE, "0");
++        if (std::ifstream(LEDS_HAPTICS_STATE_FILE).good())
++            write_to_file(LEDS_HAPTICS_STATE_FILE, "1");
+         write_to_file(LEDS_HAPTICS_DURATION_FILE, tout);
+         write_to_file(LEDS_HAPTICS_ACTIVATE_FILE, "1");
+     } else
 diff --git a/partition.cpp b/partition.cpp
 index 3f25772aa2bd62d6305f896467e881fe8d0e4c31..5ecb131faa3ba1786cdd1d8551a2d6cc08e82e58 100755
 --- a/partition.cpp
