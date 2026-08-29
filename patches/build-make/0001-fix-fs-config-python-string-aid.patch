@@ -1,0 +1,15 @@
+# Provenance: PAR build-host compatibility fix maintained by yukino1111
+# against the pinned TeamWin Android 9 build tree.
+diff --git a/tools/fs_config/fs_config_generator.py b/tools/fs_config/fs_config_generator.py
+index 4839578..0805971 100755
+--- a/tools/fs_config/fs_config_generator.py
++++ b/tools/fs_config/fs_config_generator.py
+@@ -436,7 +436,7 @@ class AIDHeaderParser(object):
+         # No core AIDs should be within any oem range.
+         for aid in self._aid_value_to_name:
+ 
+-            if Utils.in_any_range(aid, self._oem_ranges):
++            if not isinstance(aid, str) and Utils.in_any_range(aid, self._oem_ranges):
+                 name = self._aid_value_to_name[aid]
+                 raise ValueError(
+                     'AID "%s" value: %u within reserved OEM Range: "%s"' %

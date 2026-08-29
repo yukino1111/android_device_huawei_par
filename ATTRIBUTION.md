@@ -28,6 +28,8 @@ The following porting and device fixes are maintained by yukino1111:
   needed for Android 13 FBE decryption;
 - ABX header detection, dynamic USB OTG discovery, FBE wipe/MTP handling, and
   Linux 4.9 F2FS NAT-bits compatibility;
+- Android 9 build-host compatibility fixes for the pinned `build/make` and
+  `system/sepolicy` Python helpers;
 - PAR haptics and the correction of the default backup list.
 
 These local changes do not claim authorship of TeamWin, AOSP, F2FS, the

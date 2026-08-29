@@ -1,0 +1,18 @@
+# Provenance: PAR build-host Python 3 compatibility fix maintained by
+# yukino1111 against the pinned OmniROM Android 9 sepolicy tree.
+diff --git a/build/file_utils.py b/build/file_utils.py
+index 1559a9b9..4e39e1fc 100644
+--- a/build/file_utils.py
++++ b/build/file_utils.py
+@@ -39,7 +39,10 @@ def filter_out(pattern_files, input_file):
+         patterns.extend(open(f).readlines())
+ 
+     # Copy lines that are not in the pattern.
+-    tmp_output = tempfile.NamedTemporaryFile()
++    # Python 3 temporary files default to binary mode, while this helper
++    # copies policy text.  Text mode keeps the host tool compatible with
++    # both Python 2 and Python 3.
++    tmp_output = tempfile.NamedTemporaryFile(mode='w+')
+     with open(input_file, 'r') as in_file:
+         tmp_output.writelines(line for line in in_file.readlines()
+                               if line not in patterns)

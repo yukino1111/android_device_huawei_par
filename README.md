@@ -42,15 +42,26 @@ it yourself.
 
 ## Build
 
-Place this tree at `device/huawei/par` in a TWRP 9 checkout, apply the patches
-under `patches/`, then run:
+The exact source revisions used by the validated build are recorded in
+`manifest/twrp-9.0-pinned.xml`. Initialize the TWRP 9 manifest, place this tree
+at `device/huawei/par`, select the pinned manifest, then apply the ordered patch
+set and extract the Huawei files from EMUI 9.0.0.187:
 
 ```bash
+repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-9.0
+git clone -b android-9.0 https://github.com/yukino1111/android_device_huawei_par device/huawei/par
+cp device/huawei/par/manifest/twrp-9.0-pinned.xml .repo/manifests/par-pinned.xml
+repo init -m par-pinned.xml
+repo sync -c --no-tags
+device/huawei/par/scripts/apply-patches.sh "$PWD"
 device/huawei/par/scripts/extract-proprietary.sh /path/to/extracted-emui-root
 source build/envsetup.sh
 lunch omni_par-eng
 mka recoveryimage
 ```
+
+The proprietary-file list is complete, but the Huawei binaries themselves are
+intentionally not distributed by this repository.
 
 ## Installation
 
